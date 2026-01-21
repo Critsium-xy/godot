@@ -1951,7 +1951,10 @@ void DisplayServerWindows::window_set_title(const String &p_title, WindowID p_wi
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND(!windows.has(p_window));
-	SetWindowTextW(windows[p_window].hWnd, (LPCWSTR)(p_title.utf16().get_data()));
+	String title = p_title;
+	// Replace visible "Godot" occurrences in window title only.
+	title = title.replace("Godot", "Nekodot");
+	SetWindowTextW(windows[p_window].hWnd, (LPCWSTR)(title.utf16().get_data()));
 }
 
 Size2i DisplayServerWindows::window_get_title_size(const String &p_title, WindowID p_window) const {

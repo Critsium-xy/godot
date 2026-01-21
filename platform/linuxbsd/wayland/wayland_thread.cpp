@@ -4468,12 +4468,18 @@ void WaylandThread::window_set_title(DisplayServer::WindowID p_window_id, const 
 
 #ifdef LIBDECOR_ENABLED
 	if (ws.libdecor_frame) {
-		libdecor_frame_set_title(ws.libdecor_frame, p_title.utf8().get_data());
+		String title = p_title;
+		// Replace visible "Godot" occurrences in window title only.
+		title = title.replace("Godot", "Nekodot");
+		libdecor_frame_set_title(ws.libdecor_frame, title.utf8().get_data());
 	}
 #endif // LIBDECOR_ENABLE
 
 	if (ws.xdg_toplevel) {
-		xdg_toplevel_set_title(ws.xdg_toplevel, p_title.utf8().get_data());
+		String title = p_title;
+		// Replace visible "Godot" occurrences in window title only.
+		title = title.replace("Godot", "Nekodot");
+		xdg_toplevel_set_title(ws.xdg_toplevel, title.utf8().get_data());
 	}
 }
 

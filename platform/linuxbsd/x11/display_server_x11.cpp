@@ -2202,12 +2202,16 @@ void DisplayServerX11::window_set_title(const String &p_title, WindowID p_window
 	ERR_FAIL_COND(!windows.has(p_window));
 	WindowData &wd = windows[p_window];
 
-	XStoreName(x11_display, wd.x11_window, p_title.utf8().get_data());
+	String title = p_title;
+	// Replace visible "Godot" occurrences in window title only.
+	title = title.replace("Godot", "Nekodot");
+
+	XStoreName(x11_display, wd.x11_window, title.utf8().get_data());
 
 	Atom _net_wm_name = XInternAtom(x11_display, "_NET_WM_NAME", false);
 	Atom utf8_string = XInternAtom(x11_display, "UTF8_STRING", false);
 	if (_net_wm_name != None && utf8_string != None) {
-		CharString utf8_title = p_title.utf8();
+		CharString utf8_title = title.utf8();
 		XChangeProperty(x11_display, wd.x11_window, _net_wm_name, utf8_string, 8, PropModeReplace, (unsigned char *)utf8_title.get_data(), utf8_title.length());
 	}
 }
