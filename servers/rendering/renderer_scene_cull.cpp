@@ -113,6 +113,16 @@ void RendererSceneCull::camera_set_transform(RID p_camera, const Transform3D &p_
 	camera->transform = p_transform.orthonormalized();
 }
 
+void RendererSceneCull::camera_set_override_projection(RID p_camera, const Projection &p_matrix) {
+	Camera *camera = camera_owner.get_or_null(p_camera);
+	ERR_FAIL_NULL(camera);
+	Projection zero;
+	zero.set_zero();
+	camera->has_override_projection = (p_matrix != zero);
+	camera->override_projection = p_matrix;
+}
+
+
 void RendererSceneCull::camera_set_cull_mask(RID p_camera, uint32_t p_layers) {
 	Camera *camera = camera_owner.get_or_null(p_camera);
 	ERR_FAIL_NULL(camera);
@@ -2656,7 +2666,10 @@ void RendererSceneCull::render_camera(const Ref<RenderSceneBuffers> &p_render_bu
 		}
 
 		camera_data.set_camera(transform, projection, is_orthogonal, is_frustum, vaspect, jitter, taa_frame_count, camera->visible_layers);
-#ifndef XR_DISABLED
+		if (camera->has_override_projection) {
+			camera_data.set_override_projection(camera->override_projection);
+		}
+		#ifndef XR_DISABLED
 	} else {
 		XRServer *xr_server = XRServer::get_singleton();
 
