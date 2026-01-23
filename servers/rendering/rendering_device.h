@@ -1113,7 +1113,7 @@ public:
 
 private:
 	static const uint32_t MAX_UNIFORM_SETS = 16;
-	static const uint32_t MAX_PUSH_CONSTANT_SIZE = 128;
+	static const uint32_t MAX_PUSH_CONSTANT_SIZE = 256;
 
 	// This structure contains the descriptor set. They _need_ to be allocated
 	// for a shader (and will be erased when this shader is erased), but should
