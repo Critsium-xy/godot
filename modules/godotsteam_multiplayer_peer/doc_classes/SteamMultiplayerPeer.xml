@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SteamMultiplayerPeer" inherits="MultiplayerPeer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Provides a bridge between Steam Networking Sockets and Godot's high level [MultiplayerAPI].
+	</brief_description>
+	<description>
+		A [MultiplayerPeer] implementation that connects Steam Networking Sockets to Godot's high level multiplayer API. Should be passed to [MultiplayerAPI].multiplayer_peer after being initialized by calling [code]create_lobby[/code] or [code]connect_lobby[/code].
+	</description>
+	<tutorials>
+		<link title="GodotSteam and SteamMultiplayerPeer - article by Michael Macha">https://michaelmacha.wordpress.com/2024/04/08/godotsteam-and-steammultiplayerpeer/</link>
+		<link title="Compiling from source">https://godotsteam.com/howto/multiplayer_peer/</link>
+		<link title="Changelog">https://godotsteam.com/changelog/multiplayer_peer/</link>
+	</tutorials>
+	<methods>
+		<method name="add_peer">
+			<return type="int" enum="Error" />
+			<param index="0" name="steam_id" type="int" />
+			<param index="1" name="virtual_port" type="int" default="0" />
+			<description>
+			</description>
+		</method>
+		<method name="connect_to_lobby">
+			<return type="int" enum="Error" />
+			<param index="0" name="lobby_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="create_client">
+			<return type="int" enum="Error" />
+			<param index="0" name="steam_id" type="int" />
+			<param index="1" name="virtual_port" type="int" default="0" />
+			<description>
+			</description>
+		</method>
+		<method name="create_host">
+			<return type="int" enum="Error" />
+			<param index="0" name="virtual_port" type="int" default="0" />
+			<description>
+			</description>
+		</method>
+		<method name="get_peer">
+			<return type="SteamPacketPeer" />
+			<param index="0" name="peer_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_peer_id_for_steam_id">
+			<return type="int" />
+			<param index="0" name="steam_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_steam_id_for_peer_id">
+			<return type="int" />
+			<param index="0" name="peer_id" type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="host_with_lobby">
+			<return type="int" enum="Error" />
+			<param index="0" name="lobby_id" type="int" />
+			<description>
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="debug_level" type="int" setter="set_debug_level" getter="get_debug_level" enum="SteamMultiplayerPeer.DebugLevel" default="0">
+		</member>
+		<member name="no_delay" type="bool" setter="set_no_delay" getter="get_no_delay" default="false">
+		</member>
+		<member name="no_nagle" type="bool" setter="set_no_nagle" getter="get_no_nagle" default="false">
+		</member>
+	</members>
+	<constants>
+		<constant name="DEBUG_LEVEL_NONE" value="0" enum="DebugLevel">
+		</constant>
+		<constant name="DEBUG_LEVEL_PEER" value="1" enum="DebugLevel">
+		</constant>
+		<constant name="DEBUG_LEVEL_STEAM" value="2" enum="DebugLevel">
+		</constant>
+	</constants>
+</class>

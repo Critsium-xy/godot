@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SteamPacketPeer" inherits="PacketPeer" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+	</brief_description>
+	<description>
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="disconnect_peer">
+			<return type="void" />
+			<param index="0" name="force" type="bool" default="false" />
+			<description>
+			</description>
+		</method>
+		<method name="get_peer_id" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+		<method name="get_steam_id" qualifiers="const">
+			<return type="int" />
+			<description>
+			</description>
+		</method>
+	</methods>
+	<constants>
+		<constant name="STATE_NONE" value="0" enum="PeerState">
+		</constant>
+		<constant name="STATE_CONNECTING" value="1" enum="PeerState">
+		</constant>
+		<constant name="STATE_FINDING_ROUTE" value="2" enum="PeerState">
+		</constant>
+		<constant name="STATE_CONNECTED" value="3" enum="PeerState">
+		</constant>
+		<constant name="STATE_CLOSED_BY_PEER" value="4" enum="PeerState">
+		</constant>
+		<constant name="STATE_PROBLEM_DETECTED_LOCALLY" value="5" enum="PeerState">
+		</constant>
+		<constant name="STATE_FIN_WAIT" value="-1" enum="PeerState">
+		</constant>
+		<constant name="STATE_LINGER" value="-2" enum="PeerState">
+		</constant>
+		<constant name="STATE_DEAD" value="-3" enum="PeerState">
+		</constant>
+	</constants>
+</class>
