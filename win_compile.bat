@@ -1,4 +1,5 @@
 @echo off
+echo Welcome to Use NEKOPARTY Windows build script!
 echo Updating godot ...
 git pull
 git submodule update --init --recursive
