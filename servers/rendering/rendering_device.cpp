@@ -4828,6 +4828,17 @@ RenderingDevice::FramebufferFormatID RenderingDevice::screen_get_framebuffer_for
 	return const_cast<RenderingDevice *>(this)->framebuffer_format_create(screen_attachment);
 }
 
+RenderingDevice::ColorSpace RenderingDevice::screen_get_color_space(DisplayServer::WindowID p_screen) const {
+	_THREAD_SAFE_METHOD_
+
+	HashMap<DisplayServer::WindowID, RDD::SwapChainID>::ConstIterator it = screen_swap_chains.find(p_screen);
+	ERR_FAIL_COND_V_MSG(it == screen_swap_chains.end(), COLOR_SPACE_MAX, "Screen was never prepared.");
+
+	ColorSpace color_space = driver->swap_chain_get_color_space(it->value);
+	ERR_FAIL_COND_V_MSG(color_space == COLOR_SPACE_MAX, COLOR_SPACE_MAX, "Unknown color space.");
+	return color_space;
+}
+
 Error RenderingDevice::screen_free(DisplayServer::WindowID p_screen) {
 	_THREAD_SAFE_METHOD_
 
@@ -6417,7 +6428,7 @@ RenderingDevice::TransferWorker *RenderingDevice::_acquire_transfer_worker(uint3
 		MutexLock pool_lock(transfer_worker_pool_mutex);
 
 		// If no workers are available and we've reached the max pool capacity, wait until one of them becomes available.
-		bool transfer_worker_pool_full = transfer_worker_pool.size() >= transfer_worker_pool_max_size;
+		bool transfer_worker_pool_full = transfer_worker_pool_size >= transfer_worker_pool_max_size;
 		while (transfer_worker_pool_available_list.is_empty() && transfer_worker_pool_full) {
 			transfer_worker_pool_condition.wait(pool_lock);
 		}
@@ -6480,13 +6491,16 @@ RenderingDevice::TransferWorker *RenderingDevice::_acquire_transfer_worker(uint3
 			DEV_ASSERT(!transfer_worker_pool_full && "A transfer worker should never be created when the pool is full.");
 
 			// No existing worker was picked, we create a new one.
+			uint32_t transfer_worker_index = transfer_worker_pool_size;
+			++transfer_worker_pool_size;
+
 			transfer_worker = memnew(TransferWorker);
 			transfer_worker->command_fence = driver->fence_create();
 			transfer_worker->command_pool = driver->command_pool_create(transfer_queue_family, RDD::COMMAND_BUFFER_TYPE_PRIMARY);
 			transfer_worker->command_buffer = driver->command_buffer_create(transfer_worker->command_pool);
-			transfer_worker->index = transfer_worker_pool.size();
-			transfer_worker_pool.push_back(transfer_worker);
-			transfer_worker_operation_used_by_draw.push_back(0);
+			transfer_worker->index = transfer_worker_index;
+			transfer_worker_pool[transfer_worker_index] = transfer_worker;
+			transfer_worker_operation_used_by_draw[transfer_worker_index] = 0;
 			transfer_worker->thread_mutex.lock();
 		}
 	}
@@ -6640,7 +6654,7 @@ void RenderingDevice::_check_transfer_worker_index_array(IndexArray *p_index_arr
 
 void RenderingDevice::_submit_transfer_workers(RDD::CommandBufferID p_draw_command_buffer) {
 	MutexLock transfer_worker_lock(transfer_worker_pool_mutex);
-	for (uint32_t i = 0; i < transfer_worker_pool.size(); i++) {
+	for (uint32_t i = 0; i < transfer_worker_pool_size; i++) {
 		TransferWorker *worker = transfer_worker_pool[i];
 		if (p_draw_command_buffer) {
 			MutexLock lock(worker->operations_mutex);
@@ -6675,7 +6689,8 @@ void RenderingDevice::_submit_transfer_barriers(RDD::CommandBufferID p_draw_comm
 
 void RenderingDevice::_wait_for_transfer_workers() {
 	MutexLock transfer_worker_lock(transfer_worker_pool_mutex);
-	for (TransferWorker *worker : transfer_worker_pool) {
+	for (uint32_t i = 0; i < transfer_worker_pool_size; i++) {
+		TransferWorker *worker = transfer_worker_pool[i];
 		MutexLock lock(worker->thread_mutex);
 		if (worker->submitted) {
 			_wait_for_transfer_worker(worker);
@@ -6685,14 +6700,15 @@ void RenderingDevice::_wait_for_transfer_workers() {
 
 void RenderingDevice::_free_transfer_workers() {
 	MutexLock transfer_worker_lock(transfer_worker_pool_mutex);
-	for (TransferWorker *worker : transfer_worker_pool) {
+	for (uint32_t i = 0; i < transfer_worker_pool_size; i++) {
+		TransferWorker *worker = transfer_worker_pool[i];
 		driver->fence_free(worker->command_fence);
 		driver->buffer_free(worker->staging_buffer);
 		driver->command_pool_free(worker->command_pool);
 		memdelete(worker);
 	}
 
-	transfer_worker_pool.clear();
+	transfer_worker_pool_size = 0;
 }
 
 /***********************/
@@ -7102,8 +7118,8 @@ String RenderingDevice::get_device_name() const {
 	return device.name;
 }
 
-RenderingDevice::DeviceType RenderingDevice::get_device_type() const {
-	return DeviceType(device.type);
+RenderingDeviceEnums::DeviceType RenderingDevice::get_device_type() const {
+	return RenderingDeviceEnums::DeviceType(device.type);
 }
 
 String RenderingDevice::get_device_api_name() const {
@@ -7665,6 +7681,10 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 
 	// Use the processor count as the max amount of transfer workers that can be created.
 	transfer_worker_pool_max_size = OS::get_singleton()->get_processor_count();
+
+	// Pre-allocate to avoid locking a mutex when indexing into them.
+	transfer_worker_pool.resize(transfer_worker_pool_max_size);
+	transfer_worker_operation_used_by_draw.resize(transfer_worker_pool_max_size);
 
 	frames.resize(frame_count);
 
@@ -8459,12 +8479,12 @@ void RenderingDevice::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_device_memory_by_object_type", "type"), &RenderingDevice::get_device_memory_by_object_type);
 	ClassDB::bind_method(D_METHOD("get_device_allocs_by_object_type", "type"), &RenderingDevice::get_device_allocs_by_object_type);
 
-	BIND_ENUM_CONSTANT(DEVICE_TYPE_OTHER);
-	BIND_ENUM_CONSTANT(DEVICE_TYPE_INTEGRATED_GPU);
-	BIND_ENUM_CONSTANT(DEVICE_TYPE_DISCRETE_GPU);
-	BIND_ENUM_CONSTANT(DEVICE_TYPE_VIRTUAL_GPU);
-	BIND_ENUM_CONSTANT(DEVICE_TYPE_CPU);
-	BIND_ENUM_CONSTANT(DEVICE_TYPE_MAX);
+	BIND_ENUM_CONSTANT(RenderingDeviceEnums::DEVICE_TYPE_OTHER);
+	BIND_ENUM_CONSTANT(RenderingDeviceEnums::DEVICE_TYPE_INTEGRATED_GPU);
+	BIND_ENUM_CONSTANT(RenderingDeviceEnums::DEVICE_TYPE_DISCRETE_GPU);
+	BIND_ENUM_CONSTANT(RenderingDeviceEnums::DEVICE_TYPE_VIRTUAL_GPU);
+	BIND_ENUM_CONSTANT(RenderingDeviceEnums::DEVICE_TYPE_CPU);
+	BIND_ENUM_CONSTANT(RenderingDeviceEnums::DEVICE_TYPE_MAX);
 
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_LOGICAL_DEVICE);
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_PHYSICAL_DEVICE);
@@ -8978,6 +8998,7 @@ void RenderingDevice::_bind_methods() {
 	BIND_ENUM_CONSTANT(SUPPORTS_IMAGE_ATOMIC_32_BIT);
 	BIND_ENUM_CONSTANT(SUPPORTS_RAY_QUERY);
 	BIND_ENUM_CONSTANT(SUPPORTS_RAYTRACING_PIPELINE);
+	BIND_ENUM_CONSTANT(SUPPORTS_HDR_OUTPUT);
 
 	BIND_ENUM_CONSTANT(LIMIT_MAX_BOUND_UNIFORM_SETS);
 	BIND_ENUM_CONSTANT(LIMIT_MAX_FRAMEBUFFER_COLOR_ATTACHMENTS);

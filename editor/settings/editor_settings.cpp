@@ -390,15 +390,15 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_THREAD_SAFE_METHOD_
 // Sets up the editor setting with a default value and hint PropertyInfo.
 #define EDITOR_SETTING(m_type, m_property_hint, m_name, m_default_value, m_hint_string) \
-	_initial_set(m_name, m_default_value);                                              \
+	_initial_set(m_name, m_default_value); \
 	hints[m_name] = PropertyInfo(m_type, m_name, m_property_hint, m_hint_string);
 
 #define EDITOR_SETTING_BASIC(m_type, m_property_hint, m_name, m_default_value, m_hint_string) \
-	_initial_set(m_name, m_default_value, true);                                              \
+	_initial_set(m_name, m_default_value, true); \
 	hints[m_name] = PropertyInfo(m_type, m_name, m_property_hint, m_hint_string);
 
 #define EDITOR_SETTING_USAGE(m_type, m_property_hint, m_name, m_default_value, m_hint_string, m_usage) \
-	_initial_set(m_name, m_default_value);                                                             \
+	_initial_set(m_name, m_default_value); \
 	hints[m_name] = PropertyInfo(m_type, m_name, m_property_hint, m_hint_string, m_usage);
 
 	/* Languages */
@@ -696,6 +696,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	_initial_set("docks/filesystem/always_show_folders", true);
 	_initial_set("docks/filesystem/textfile_extensions", "txt,md,cfg,ini,log,json,yml,yaml,toml,xml");
 	_initial_set("docks/filesystem/other_file_extensions", "ico,icns");
+	_initial_set("docks/filesystem/automatically_open_created_scripts", true);
 
 	// Property editor
 	EDITOR_SETTING(Variant::FLOAT, PROPERTY_HINT_RANGE, "docks/property_editor/auto_refresh_interval", 0.2, "0.01,1,0.001"); // Update 5 times per second by default.
@@ -964,6 +965,7 @@ void EditorSettings::_load_defaults(Ref<ConfigFile> p_extra_config) {
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_RANGE, "editors/3d/manipulator_gizmo_size", 80, "16,160,1");
 	EDITOR_SETTING(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/manipulator_gizmo_opacity", 0.9, "0,1,0.01");
 	EDITOR_SETTING(Variant::INT, PROPERTY_HINT_FLAGS, "editors/3d/show_gizmo_during_rotation", 2, "Global,Local");
+	EDITOR_SETTING_USAGE(Variant::FLOAT, PROPERTY_HINT_RANGE, "editors/3d/view_plane_rotation_gizmo_scale", 1.14, "1.0,2.0,0.01,or_greater", PROPERTY_USAGE_DEFAULT | PROPERTY_USAGE_RESTART_IF_CHANGED);
 
 	// 2D
 	_initial_set("editors/2d/grid_color", Color(1.0, 1.0, 1.0, 0.07), true);
@@ -1649,7 +1651,7 @@ Vector<String> EditorSettings::get_favorite_folders() const {
 }
 
 HashMap<String, PackedStringArray> EditorSettings::get_favorite_properties() const {
-	return favorite_properties;
+	return HashMap<String, PackedStringArray>(favorite_properties);
 }
 
 void EditorSettings::set_recent_dirs(const Vector<String> &p_recent_dirs, bool p_update_file_dialog) {

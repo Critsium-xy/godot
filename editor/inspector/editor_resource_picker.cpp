@@ -1036,12 +1036,12 @@ void EditorResourcePicker::_bind_methods() {
 	GDVIRTUAL_BIND(_handle_menu_selected, "id");
 
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "base_type"), "set_base_type", "get_base_type");
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "edited_resource", PROPERTY_HINT_RESOURCE_TYPE, "Resource", PROPERTY_USAGE_NONE), "set_edited_resource", "get_edited_resource");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "edited_resource", PROPERTY_HINT_RESOURCE_TYPE, Resource::get_class_static(), PROPERTY_USAGE_NONE), "set_edited_resource", "get_edited_resource");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "editable"), "set_editable", "is_editable");
 	ADD_PROPERTY(PropertyInfo(Variant::BOOL, "toggle_mode"), "set_toggle_mode", "is_toggle_mode");
 
-	ADD_SIGNAL(MethodInfo("resource_selected", PropertyInfo(Variant::OBJECT, "resource", PROPERTY_HINT_RESOURCE_TYPE, "Resource"), PropertyInfo(Variant::BOOL, "inspect")));
-	ADD_SIGNAL(MethodInfo("resource_changed", PropertyInfo(Variant::OBJECT, "resource", PROPERTY_HINT_RESOURCE_TYPE, "Resource")));
+	ADD_SIGNAL(MethodInfo("resource_selected", PropertyInfo(Variant::OBJECT, "resource", PROPERTY_HINT_RESOURCE_TYPE, Resource::get_class_static()), PropertyInfo(Variant::BOOL, "inspect")));
+	ADD_SIGNAL(MethodInfo("resource_changed", PropertyInfo(Variant::OBJECT, "resource", PROPERTY_HINT_RESOURCE_TYPE, Resource::get_class_static())));
 }
 
 void EditorResourcePicker::_notification(int p_what) {
@@ -1399,17 +1399,17 @@ bool EditorResourcePicker::_is_uniqueness_enabled(bool p_check_recursive) {
 	}
 	Ref<Resource> parent_resource = _has_parent_resource();
 	EditorNode *en = EditorNode::get_singleton();
-	bool internal_to_scene = edited_resource->is_built_in();
+	bool internal_to_scene = en->is_resource_internal_to_scene(edited_resource);
 	List<Node *> node_list = en->get_editor_selection()->get_full_selected_node_list();
 
 	// Todo: Implement a more elegant solution for multiple selected Nodes. This should suffice for the time being.
 	if (node_list.size() > 1 && !p_check_recursive) {
-		return node_list.size() != EditorNode::get_singleton()->get_resource_count(edited_resource) || !internal_to_scene;
+		return node_list.size() != en->get_resource_count(edited_resource) || !internal_to_scene;
 	}
 
 	if (!internal_to_scene) {
-		if (parent_resource.is_valid() && parent_resource->is_built_in() && (!EditorNode::get_singleton()->is_resource_internal_to_scene(parent_resource) || en->get_resource_count(parent_resource) > 1)) {
-			return false;
+		if (parent_resource.is_valid() && (!en->is_resource_internal_to_scene(parent_resource) || en->get_resource_count(parent_resource) > 1)) {
+			return !parent_resource->is_built_in();
 		} else if (!p_check_recursive) {
 			return true;
 		}
@@ -1555,7 +1555,7 @@ void EditorScriptPicker::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_script_owner", "owner_node"), &EditorScriptPicker::set_script_owner);
 	ClassDB::bind_method(D_METHOD("get_script_owner"), &EditorScriptPicker::get_script_owner);
 
-	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "script_owner", PROPERTY_HINT_RESOURCE_TYPE, "Node", PROPERTY_USAGE_NONE), "set_script_owner", "get_script_owner");
+	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "script_owner", PROPERTY_HINT_RESOURCE_TYPE, Node::get_class_static(), PROPERTY_USAGE_NONE), "set_script_owner", "get_script_owner");
 }
 
 // EditorShaderPicker
