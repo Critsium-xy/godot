@@ -7521,10 +7521,18 @@
 			</description>
 		</signal>
 		<signal name="lobby_created">
-			<param index="0" name="connect" type="int" />
+			<param index="0" name="result" type="int" />
 			<param index="1" name="lobby_id" type="int" />
 			<description>
 				Result of our request to create a Lobby. At this point, the lobby has been joined and is ready for use.
+				Possible result values:
+				RESULT_OK - The lobby was successfully created.
+				RESULT_FAIL - The server responded, but with an unknown internal error.
+				RESULT_TIMEOUT - The message was sent to the Steam servers, but it didn't respond.
+				RESULT_LIMIT_EXCEEDED - Your game client has created too many lobbies and is being rate limited.
+				RESULT_ACCESS_DENIED - Your game isn't set to allow lobbies, or your client does haven't rights to play the game
+				RESULT_NO_CONNECTION - Your Steam client doesn't have a connection to the back-end.
+
 			</description>
 		</signal>
 		<signal name="lobby_data_update">

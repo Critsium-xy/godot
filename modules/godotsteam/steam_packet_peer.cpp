@@ -27,6 +27,8 @@
 
 #include "steam_packet_peer.h"
 
+#include "core/object/class_db.h"
+
 
 SteamPacketPeer::SteamPacketPeer() {
 	state = STATE_NONE;

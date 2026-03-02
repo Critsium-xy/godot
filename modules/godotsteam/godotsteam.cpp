@@ -38,6 +38,8 @@
 // Include GodotSteam header
 #include "godotsteam.h"
 
+#include "core/object/class_db.h"
+
 // Include some system headers
 #include "fstream"
 #include "vector"
@@ -2709,12 +2711,16 @@ PackedByteArray Steam::serializeResult(int32 this_inventory_handle) {
 		this_inventory_handle = inventory_handle;
 	}
 
-	uint32_t buffer_size = STEAM_BUFFER_SIZE;
+	uint32_t buffer_size = 0;
 	PackedByteArray buffer;
-	buffer.resize(buffer_size);
+	
+	SteamAPI_ISteamInventory_SerializeResult(SteamAPI_SteamInventory(), (SteamInventoryResult_t)this_inventory_handle, nullptr, &buffer_size); // Query API for buffer size
+
+	buffer.resize(buffer_size); // Resize buffer
+
 	if (SteamAPI_ISteamInventory_SerializeResult(SteamAPI_SteamInventory(), (SteamInventoryResult_t)this_inventory_handle, buffer.ptrw(), &buffer_size)) {
-		buffer.resize(buffer_size);
-		result_serialized = buffer;
+		buffer.resize(buffer_size); // Resize buffer again, incase it shrinks
+		result_serialized = buffer; // Put serialized results into buffer
 	}
 	return result_serialized;
 }
@@ -8354,10 +8360,10 @@ void Steam::inventory_request_prices_result(SteamInventoryRequestPricesResult_t 
 // Signal the lobby has been created.
 void Steam::lobby_created(LobbyCreated_t *lobby_data, bool io_failure) {
 	ERR_FAIL_COND_MSG(io_failure, "lobby_created signal failed internally");
-	int connect = lobby_data->m_eResult;
+	int result = lobby_data->m_eResult;
 	CSteamID lobby_id = lobby_data->m_ulSteamIDLobby;
 	uint64_t lobby = lobby_id.ConvertToUint64();
-	emit_signal("lobby_created", connect, lobby);
+	emit_signal("lobby_created", result, lobby);
 }
 
 // Result when requesting the lobby list. You should iterate over the returned lobbies with getLobbyByIndex, from 0 to
@@ -9744,7 +9750,7 @@ void Steam::_bind_methods() {
 	ADD_SIGNAL(MethodInfo("favorites_list_changed", PropertyInfo(Variant::DICTIONARY, "favorite")));
 	ADD_SIGNAL(MethodInfo("lobby_message", PropertyInfo(Variant::INT, "lobby_id"), PropertyInfo(Variant::INT, "user"), PropertyInfo(Variant::STRING, "message"), PropertyInfo(Variant::INT, "chat_type")));
 	ADD_SIGNAL(MethodInfo("lobby_chat_update", PropertyInfo(Variant::INT, "lobby_id"), PropertyInfo(Variant::INT, "changed_id"), PropertyInfo(Variant::INT, "making_change_id"), PropertyInfo(Variant::INT, "chat_state")));
-	ADD_SIGNAL(MethodInfo("lobby_created", PropertyInfo(Variant::INT, "connect"), PropertyInfo(Variant::INT, "lobby_id")));
+	ADD_SIGNAL(MethodInfo("lobby_created", PropertyInfo(Variant::INT, "result"), PropertyInfo(Variant::INT, "lobby_id")));
 	ADD_SIGNAL(MethodInfo("lobby_data_update", PropertyInfo(Variant::INT, "success"), PropertyInfo(Variant::INT, "lobby_id"), PropertyInfo(Variant::INT, "member_id")));
 	ADD_SIGNAL(MethodInfo("lobby_joined", PropertyInfo(Variant::INT, "lobby"), PropertyInfo(Variant::INT, "permissions"), PropertyInfo(Variant::BOOL, "locked"), PropertyInfo(Variant::INT, "response")));
 	ADD_SIGNAL(MethodInfo("lobby_game_created", PropertyInfo(Variant::INT, "lobby_id"), PropertyInfo(Variant::INT, "server_id"), PropertyInfo(Variant::STRING, "server_ip"), PropertyInfo(Variant::INT, "port")));

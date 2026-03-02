@@ -7,7 +7,7 @@ Additional Flavors
 Standard Module | Standard Plug-ins | Server Module | Server Plug-ins | Examples
 --- | --- | --- | --- | ---
 [Godot 2.x](https://codeberg.org/godotsteam/godotsteam/src/branch/godot2) | [GDNative](https://codeberg.org/godotsteam/godotsteam/src/branch/gdnative) | [Server 3.x](https://codeberg.org/godotsteam/godotsteam-server/src/branch/godot3) | [GDNative](https://codeberg.org/godotsteam/godotsteam-server/src/branch/gdnative) | [Skillet](https://codeberg.org/godotsteam/skillet)
-[Godot 3.x](https://codeberg.org/godotsteam/godotsteam/src/branch/godot3) | [GDExtension](https://codeberg.org/godotsteam/godotsteam/src/branch/gdextension) | [Server 4.x](https://codeberg.org/godotsteam/godotsteam-server/src/branch/godot4) | [GDExtension](https://codeberg.org/godotsteam/godotsteam-server/src/branch/gdextension) | ---
+[Godot 3.x](https://codeberg.org/godotsteam/godotsteam/src/branch/godot3) | [GDExtension](https://codeberg.org/godotsteam/godotsteam/src/branch/gdextension) | [Server 4.x](https://codeberg.org/godotsteam/godotsteam-server/src/branch/godot4) | [GDExtension](https://codeberg.org/godotsteam/godotsteam-server/src/branch/gdextension) | [Skillet UGC Editor](https://codeberg.org/godotsteam/skillet/src/branch/ugc_editor)
 [Godot 4.x](https://codeberg.org/godotsteam/godotsteam/src/branch/godot4) | --- | --- | --- | ---
 [MultiplayerPeer](https://codeberg.org/godotsteam/multiplayerpeer)| --- | --- | --- | ---
 
@@ -16,7 +16,7 @@ Documentation
 ---
 [Documentation is available here](https://godotsteam.com).  You can also check out the Search Help section inside Godot Engine.  [To start, try checking out our tutorial on initializing Steam.](https://godotsteam.com/tutorials/initializing/)  There are additional tutorials, with more in the works.  You can also [check out additional Godot and Steam related videos, text, additional tools, plug-ins, etc. here.](https://godotsteam.com/resources/external/)
 
-Feel free to chat with us about GodotSteam or ask for assistance on the [Discord server](https://discord.gg/SJRSq6K).
+Feel free to chat with us about GodotSteam or ask for assistance on the [Stoat server](https://stt.gg/9DxQ3Dcd) or [IRC on Libera Chat](irc://irc.libera.chat/#godotsteam).
 
 
 Donate
@@ -28,20 +28,12 @@ Current Build
 ---
 You can [download pre-compiled versions of this repo here](https://codeberg.org/godotsteam/godotsteam/releases).
 
-**Version 4.17 Changes**
-- Added: new enums to Result, HTTPStatusCode, RemotePlayScanCode, ActionOrigin per Steam SDK 1.63
-- Added: `getDecompressedVoice()` as custom function to wrap up `getVoice()` and `decompressVoice()` in C++
-- Added: missing HTMLMouseCursor enum binds
-- Added: SteamMultiplayerPeer now merged into main project
-- Changed: converted functions entirely over to the Flat API system
-- Changed: `activateGameOverlayInviteDialog()` changed argument name from steam_id to lobby_id for clarity
-- Changed: renamed some minor parameters
-- Changed: `getAPICallFailureReason()` now returns enum instead of string
-- Changed: error messages if Steam is not initialized or classes are missing
-- Fixed: `initFilterText()` now takes filter options
-- Fixed: `sendMessages()` not compiling correctly
-- Fixed: VOICE_RESULT_NO_DATA incorrectly named VOICE_RESULT_NO_DATE
-- Removed: GameSearch and Music Remote classes, constants, enums per Steam SDK 1.63
+**Version 4.17.1 Changes**
+
+- Changed: SCsub and config.py for ARM64 and Android
+- Fixed: && to & in bitwise check for MP
+- Fixed: potential crash in disconnect_peer; thanks to ***bearlikelion***
+- Fixed: wrong variant for max_channels in godotsteam_project_settings.cpp
 
 [You can read more change-logs here](https://godotsteam.com/changelog/godot4/).
 
@@ -69,6 +61,7 @@ GodotSteam Version | Broken Compatibility
 4.13 | getItemDefinitionProperty return a dictionary, html_needs_paint key 'bgra' changed to 'rbga'
 4.14 | Removed first argument for stat request in steamInit and steamInitEx, steamInit returns intended bool value
 4.16 | Variety of small break points, refer to [4.16 changelog for details](https://godotsteam.com/changelog/godot4/)
+4.17 | Windows projects using Steam SDK 1.63 are meant to work with Proton 11 or Experimental on Linux / Steam Deck.
 
 
 Known Issues
