@@ -30,19 +30,22 @@
 
 #include "scene_tree.h"
 
+STATIC_ASSERT_INCOMPLETE_TYPE(class, RenderingServer);
+
 #include "core/config/project_settings.h"
 #include "core/input/input.h"
 #include "core/io/image_loader.h"
 #include "core/io/resource_loader.h"
+#include "core/object/class_db.h"
 #include "core/object/message_queue.h"
 #include "core/object/worker_thread_pool.h"
 #include "core/os/os.h"
 #include "core/profiling/profiling.h"
-#include "node.h"
 #include "scene/animation/tween.h"
 #include "scene/debugger/scene_debugger.h"
 #include "scene/gui/control.h"
 #include "scene/main/multiplayer_api.h"
+#include "scene/main/node.h"
 #include "scene/main/viewport.h"
 #include "scene/main/window.h"
 #include "scene/resources/environment.h"
@@ -51,6 +54,7 @@
 #include "scene/resources/mesh.h"
 #include "scene/resources/packed_scene.h"
 #include "scene/resources/world_2d.h"
+#include "servers/rendering/rendering_server.h"
 
 #ifndef _3D_DISABLED
 #include "scene/3d/node_3d.h"
