@@ -106,9 +106,6 @@
 			Will only show the shadows casted from this object.
 			In other words, the actual mesh will not be visible, only the shadows casted from the mesh will be.
 		</constant>
-		<constant name="SHADOW_CASTING_SETTING_INVERSED" value="4" enum="ShadowCastingSetting">
-			Will cast shadows from this object, but with inverted face culling. During the shadow pass, back faces are rendered instead of front faces, which eliminates Peter Panning (shadows detaching from the object) at the cost of potential light leaking through thin geometry.
-		</constant>
 		<constant name="GI_MODE_DISABLED" value="0" enum="GIMode">
 			Disabled global illumination mode. Use for dynamic objects that do not contribute to global illumination (such as characters). When using [VoxelGI] and SDFGI, the geometry will [i]receive[/i] indirect lighting and reflections but the geometry will not be considered in GI baking.
 		</constant>
