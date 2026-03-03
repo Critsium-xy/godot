@@ -2410,6 +2410,12 @@ void RenderForwardMobile::_render_list_template(RenderingDevice::DrawListID p_dr
 
 		if (p_params->pass_mode == PASS_MODE_DEPTH_MATERIAL || ((p_params->pass_mode == PASS_MODE_SHADOW || p_params->pass_mode == PASS_MODE_SHADOW_DP) && surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS)) {
 			cull_variant = SceneShaderForwardMobile::ShaderData::CULL_VARIANT_DOUBLE_SIDED;
+		} else if ((p_params->pass_mode == PASS_MODE_SHADOW || p_params->pass_mode == PASS_MODE_SHADOW_DP) && surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_INVERSED_SHADOWS) {
+			bool mirror = surf->owner->mirror;
+			if (p_params->reverse_cull) {
+				mirror = !mirror;
+			}
+			cull_variant = mirror ? SceneShaderForwardMobile::ShaderData::CULL_VARIANT_NORMAL : SceneShaderForwardMobile::ShaderData::CULL_VARIANT_REVERSED;
 		} else {
 			bool mirror = surf->owner->mirror;
 			if (p_params->reverse_cull) {
@@ -2774,6 +2780,10 @@ void RenderForwardMobile::_geometry_instance_add_surface_with_material(GeometryI
 
 	if (ginstance->data->cast_double_sided_shadows) {
 		flags |= GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS;
+	}
+
+	if (ginstance->data->cast_inversed_shadows) {
+		flags |= GeometryInstanceSurfaceDataCache::FLAG_USES_INVERSED_SHADOWS;
 	}
 
 	if (p_material->shader_data->stencil_enabled) {

@@ -5919,6 +5919,9 @@
 		<constant name="SHADOW_CASTING_SETTING_SHADOWS_ONLY" value="3" enum="ShadowCastingSetting">
 			Only render the shadows from the object. The object itself will not be drawn.
 		</constant>
+		<constant name="SHADOW_CASTING_SETTING_INVERSED" value="4" enum="ShadowCastingSetting">
+			Render shadows with inverted face culling. During the shadow pass, back faces are rendered instead of front faces, which eliminates Peter Panning (shadows detaching from the object) at the cost of potential light leaking through thin geometry.
+		</constant>
 		<constant name="VISIBILITY_RANGE_FADE_DISABLED" value="0" enum="VisibilityRangeFadeMode" keywords="LOD_FADE_DISABLED">
 			Disable visibility range fading for the given instance.
 		</constant>

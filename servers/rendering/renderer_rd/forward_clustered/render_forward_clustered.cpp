@@ -400,6 +400,12 @@ void RenderForwardClustered::_render_list_template(RenderingDevice::DrawListID p
 			if constexpr (p_pass_mode == PASS_MODE_SHADOW || p_pass_mode == PASS_MODE_SHADOW_DP) {
 				if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS) {
 					cull_variant = SceneShaderForwardClustered::ShaderData::CULL_VARIANT_DOUBLE_SIDED;
+				} else if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_INVERSED_SHADOWS) {
+					bool mirror = surf->owner->mirror;
+					if (p_params->reverse_cull) {
+						mirror = !mirror;
+					}
+					cull_variant = mirror ? SceneShaderForwardClustered::ShaderData::CULL_VARIANT_NORMAL : SceneShaderForwardClustered::ShaderData::CULL_VARIANT_REVERSED;
 				}
 			}
 
@@ -4078,6 +4084,10 @@ void RenderForwardClustered::_geometry_instance_add_surface_with_material(Geomet
 
 	if (ginstance->data->cast_double_sided_shadows) {
 		flags |= GeometryInstanceSurfaceDataCache::FLAG_USES_DOUBLE_SIDED_SHADOWS;
+	}
+
+	if (ginstance->data->cast_inversed_shadows) {
+		flags |= GeometryInstanceSurfaceDataCache::FLAG_USES_INVERSED_SHADOWS;
 	}
 
 	if (p_material->shader_data->stencil_enabled) {
