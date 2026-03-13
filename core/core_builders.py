@@ -47,6 +47,8 @@ const unsigned long long GODOT_VERSION_TIMESTAMP = {git_timestamp};
 
 
 def encryption_key_builder(target, source, env):
+    import hashlib
+
     src = source[0].read() or "0" * 64
     try:
         buffer = bytes.fromhex(src)
@@ -60,14 +62,48 @@ def encryption_key_builder(target, source, env):
         )
         raise
 
+    # Generate a deterministic but non-obvious XOR mask from the key itself.
+    # Using HMAC-SHA256 with a fixed salt ensures the same key always produces
+    # the same obfuscated output (reproducible builds), while making the mask
+    # non-trivially related to the key.
+    import hmac
+
+    salt = b"nekodot_key_obfuscation_salt_v1\x00\x00"  # 32 bytes
+    mask = hmac.new(salt, buffer, hashlib.sha256).digest()
+
+    # Obfuscated key: key XOR mask
+    obf_key = bytes(a ^ b for a, b in zip(buffer, mask))
+    # Obfuscated mask: each byte XOR'd with (index * 0x9E + 0x3B) & 0xFF
+    obf_mask = bytes(b ^ ((i * 0x9E + 0x3B) & 0xFF) for i, b in enumerate(mask))
+
     with methods.generated_wrapper(str(target[0])) as file:
         file.write(
             f"""\
 #include "core/config/project_settings.h"
 
-uint8_t script_encryption_key[32] = {{
-	{methods.format_buffer(buffer, 1)}
-}};"""
+// Obfuscated encryption key storage - do not modify manually.
+static const uint8_t _obf_key_a[32] = {{
+	{methods.format_buffer(obf_key, 1)}
+}};
+
+static const uint8_t _obf_key_b[32] = {{
+	{methods.format_buffer(obf_mask, 1)}
+}};
+
+uint8_t script_encryption_key[32];
+
+// Called during static initialization to deobfuscate the key.
+namespace {{
+struct _KeyDeobfuscator {{
+	_KeyDeobfuscator() {{
+		for (int i = 0; i < 32; i++) {{
+			uint8_t mask_byte = _obf_key_b[i] ^ ((i * 0x9E + 0x3B) & 0xFF);
+			script_encryption_key[i] = _obf_key_a[i] ^ mask_byte;
+		}}
+	}}
+}};
+static _KeyDeobfuscator _key_deobf;
+}}"""
         )
 
 
