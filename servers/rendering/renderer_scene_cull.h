@@ -84,13 +84,11 @@ public:
 		Vector2 offset;
 		uint32_t visible_layers;
 		bool vaspect;
-		bool has_override_projection;
 		RID env;
 		RID attributes;
 		RID compositor;
 
 		Transform3D transform;
-		Projection override_projection;
 
 		Camera() {
 			visible_layers = 0xFFFFFFFF;
@@ -101,8 +99,6 @@ public:
 			size = 1.0;
 			offset = Vector2();
 			vaspect = false;
-			has_override_projection = false;
-			override_projection.set_zero();
 		}
 	};
 
@@ -114,7 +110,6 @@ public:
 	virtual void camera_set_perspective(RID p_camera, float p_fovy_degrees, float p_z_near, float p_z_far);
 	virtual void camera_set_orthogonal(RID p_camera, float p_size, float p_z_near, float p_z_far);
 	virtual void camera_set_frustum(RID p_camera, float p_size, Vector2 p_offset, float p_z_near, float p_z_far);
-	virtual void camera_set_override_projection(RID p_camera, const Projection &p_matrix);
 	virtual void camera_set_transform(RID p_camera, const Transform3D &p_transform);
 	virtual void camera_set_cull_mask(RID p_camera, uint32_t p_layers);
 	virtual void camera_set_environment(RID p_camera, RID p_env);
@@ -787,6 +782,9 @@ public:
 			float spot_attenuation;
 			bool has_shadow;
 			RSE::LightDirectionalSkyMode sky_mode;
+			Vector2 area_size;
+			bool area_normalize_energy;
+			RID area_texture;
 		};
 
 		Vector<LightCache> light_cache;
@@ -1169,6 +1167,7 @@ public:
 	virtual void render_probes();
 
 	TypedArray<Image> bake_render_uv2(RID p_base, const TypedArray<RID> &p_material_overrides, const Size2i &p_image_size);
+	PackedByteArray bake_render_area_light_atlas(const TypedArray<RID> &p_area_light_textures, const TypedArray<Rect2> &p_area_light_atlas_texture_rects, const Size2i &p_size, int p_mipmaps);
 
 	//pass to scene render
 

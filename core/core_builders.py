@@ -79,7 +79,7 @@ def encryption_key_builder(target, source, env):
     with methods.generated_wrapper(str(target[0])) as file:
         file.write(
             f"""\
-#include "core/config/project_settings.h"
+#include <cstdint>
 
 // Obfuscated encryption key storage - do not modify manually.
 static const uint8_t _obf_key_a[32] = {{
