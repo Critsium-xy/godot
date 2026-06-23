@@ -125,6 +125,40 @@ static void track_mouse_leave_event(HWND hWnd) {
 	TrackMouseEvent(&tme);
 }
 
+static void update_ime_form_positions(HIMC p_himc, const Point2i &p_pos) {
+	if (p_himc == (HIMC) nullptr) {
+		return;
+	}
+
+	COMPOSITIONFORM cps = {};
+	cps.dwStyle = CFS_POINT;
+	cps.ptCurrentPos.x = p_pos.x;
+	cps.ptCurrentPos.y = p_pos.y;
+	ImmSetCompositionWindow(p_himc, &cps);
+
+	LOGFONT logFont = {};
+
+	logFont.lfHeight = 1; // em height
+	logFont.lfQuality = CLEARTYPE_QUALITY;
+
+	ImmSetCompositionFontA(p_himc, &logFont);
+
+	CANDIDATEFORM cf = {};
+	cf.dwIndex = 0;
+
+	cf.dwStyle = CFS_CANDIDATEPOS;
+	cf.ptCurrentPos.x = p_pos.x;
+	cf.ptCurrentPos.y = p_pos.y;
+	ImmSetCandidateWindow(p_himc, &cf);
+
+	cf.dwStyle = CFS_EXCLUDE;
+	cf.rcArea.left = p_pos.x;
+	cf.rcArea.right = p_pos.x;
+	cf.rcArea.top = p_pos.y;
+	cf.rcArea.bottom = p_pos.y;
+	ImmSetCandidateWindow(p_himc, &cf);
+}
+
 bool DisplayServerWindows::has_feature(DisplayServerEnums::Feature p_feature) const {
 	switch (p_feature) {
 #ifndef DISABLE_DEPRECATED
@@ -3200,11 +3234,7 @@ void DisplayServerWindows::window_set_ime_position(const Point2i &p_pos, Display
 		return;
 	}
 
-	COMPOSITIONFORM cps;
-	cps.dwStyle = CFS_POINT;
-	cps.ptCurrentPos.x = wd.im_position.x;
-	cps.ptCurrentPos.y = wd.im_position.y;
-	ImmSetCompositionWindow(himc, &cps);
+	update_ime_form_positions(himc, wd.im_position);
 	ImmReleaseContext(wd.hWnd, himc);
 }
 
@@ -4753,11 +4783,21 @@ bool DisplayServerWindows::window_is_hdr_output_supported(DisplayServerEnums::Wi
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND_V(!windows.has(p_window), false);
+	bool renderer_supports_hdr_output = false;
+	bool surface_supports_hdr_output = false;
 #if defined(RD_ENABLED)
-	if (rendering_device && !rendering_device->has_feature(RenderingDevice::Features::SUPPORTS_HDR_OUTPUT)) {
-		return false; // HDR output is not supported by the rendering device.
+	if (rendering_device && rendering_device->has_feature(RenderingDevice::Features::SUPPORTS_HDR_OUTPUT)) {
+		renderer_supports_hdr_output = true;
+		surface_supports_hdr_output = rendering_device->screen_get_hdr_output_supported(p_window);
 	}
 #endif
+	if (!renderer_supports_hdr_output) {
+		return false;
+	}
+
+	if (!surface_supports_hdr_output) {
+		return false;
+	}
 
 	// The window supports HDR if the screen it is on supports HDR.
 	DisplayServerWindows::ScreenHdrData data = _get_screen_hdr_data(p_window, false);
@@ -4768,9 +4808,25 @@ void DisplayServerWindows::window_request_hdr_output(const bool p_enable, Displa
 	_THREAD_SAFE_METHOD_
 
 	ERR_FAIL_COND(!windows.has(p_window));
+	if (p_enable) {
+		bool renderer_supports_hdr_output = false;
+		bool surface_supports_hdr_output = false;
 #if defined(RD_ENABLED)
-	ERR_FAIL_COND_EDMSG(p_enable && (rendering_device && rendering_device->has_feature(RenderingDevice::Features::SUPPORTS_HDR_OUTPUT)) == false, "HDR output is not supported by the rendering device.");
+		if (rendering_device && rendering_device->has_feature(RenderingDevice::Features::SUPPORTS_HDR_OUTPUT)) {
+			renderer_supports_hdr_output = true;
+			surface_supports_hdr_output = rendering_device->screen_get_hdr_output_supported(p_window);
+		}
 #endif
+		if (!renderer_supports_hdr_output) {
+			WARN_PRINT("HDR output requested, but is not supported by the renderer or rendering device driver.");
+			return;
+		}
+
+		if (!surface_supports_hdr_output) {
+			WARN_PRINT("HDR output requested, but the window does not support an HDR format.");
+			return;
+		}
+	}
 
 	WindowData &wd = windows[p_window];
 	wd.hdr_output_requested = p_enable;
@@ -5595,28 +5651,24 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 				if (raw->data.keyboard.VKey == VK_SHIFT) {
 					// If multiple Shifts are held down at the same time,
 					// Windows natively only sends a KEYUP for the last one to be released.
+					// Handle all shift key up here for  consistency
 					if (raw->data.keyboard.Flags & RI_KEY_BREAK) {
-						// Make sure to check the latest key state since
-						// we're in the middle of the message queue.
-						if (GetAsyncKeyState(VK_SHIFT) < 0) {
-							// A Shift is released, but another Shift is still held
-							ERR_BREAK(key_event_pos >= KEY_EVENT_BUFFER_SIZE);
+						ERR_BREAK(key_event_pos >= KEY_EVENT_BUFFER_SIZE);
 
-							KeyEvent ke;
-							ke.shift = false;
-							ke.altgr = mods.has_flag(WinKeyModifierMask::ALT_GR);
-							ke.alt = mods.has_flag(WinKeyModifierMask::ALT);
-							ke.control = mods.has_flag(WinKeyModifierMask::CTRL);
-							ke.meta = mods.has_flag(WinKeyModifierMask::META);
-							ke.uMsg = WM_KEYUP;
-							ke.window_id = window_id;
+						KeyEvent ke;
+						ke.shift = false;
+						ke.altgr = mods.has_flag(WinKeyModifierMask::ALT_GR);
+						ke.alt = mods.has_flag(WinKeyModifierMask::ALT);
+						ke.control = mods.has_flag(WinKeyModifierMask::CTRL);
+						ke.meta = mods.has_flag(WinKeyModifierMask::META);
+						ke.uMsg = WM_KEYUP;
+						ke.window_id = window_id;
 
-							ke.wParam = VK_SHIFT;
-							// data.keyboard.MakeCode -> 0x2A - left shift, 0x36 - right shift.
-							// Bit 30 -> key was previously down, bit 31 -> key is being released.
-							ke.lParam = raw->data.keyboard.MakeCode << 16 | 1 << 30 | 1 << 31;
-							key_event_buffer[key_event_pos++] = ke;
-						}
+						ke.wParam = VK_SHIFT;
+						// data.keyboard.MakeCode -> 0x2A - left shift, 0x36 - right shift.
+						// Bit 30 -> key was previously down, bit 31 -> key is being released.
+						ke.lParam = raw->data.keyboard.MakeCode << 16 | 1 << 30 | 1 << 31;
+						key_event_buffer[key_event_pos++] = ke;
 					}
 				}
 			} else if (mouse_mode == DisplayServerEnums::MOUSE_MODE_CAPTURED && raw->header.dwType == RIM_TYPEMOUSE) {
@@ -6561,6 +6613,11 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 		} break;
 		case WM_SYSKEYUP:
 		case WM_KEYUP:
+			// Windows handles shift KEYUP inconsistently, handle with WM_INPUT
+			if (wParam == VK_SHIFT) {
+				break;
+			}
+			[[fallthrough]];
 		case WM_SYSKEYDOWN:
 		case WM_KEYDOWN: {
 			if (windows[window_id].ime_suppress_next_keyup && (uMsg == WM_KEYUP || uMsg == WM_SYSKEYUP)) {
@@ -6605,20 +6662,7 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 
 		} break;
 		case WM_IME_COMPOSITION: {
-			CANDIDATEFORM cf;
-			cf.dwIndex = 0;
-
-			cf.dwStyle = CFS_CANDIDATEPOS;
-			cf.ptCurrentPos.x = windows[window_id].im_position.x;
-			cf.ptCurrentPos.y = windows[window_id].im_position.y;
-			ImmSetCandidateWindow(windows[window_id].im_himc, &cf);
-
-			cf.dwStyle = CFS_EXCLUDE;
-			cf.rcArea.left = windows[window_id].im_position.x;
-			cf.rcArea.right = windows[window_id].im_position.x;
-			cf.rcArea.top = windows[window_id].im_position.y;
-			cf.rcArea.bottom = windows[window_id].im_position.y;
-			ImmSetCandidateWindow(windows[window_id].im_himc, &cf);
+			update_ime_form_positions(windows[window_id].im_himc, windows[window_id].im_position);
 
 			if (windows[window_id].ime_active) {
 				SetCaretPos(windows[window_id].im_position.x, windows[window_id].im_position.y);

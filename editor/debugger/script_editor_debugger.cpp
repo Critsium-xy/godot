@@ -55,6 +55,7 @@
 #include "editor/gui/editor_toaster.h"
 #include "editor/inspector/editor_property_name_processor.h"
 #include "editor/scene/3d/node_3d_editor_plugin.h"
+#include "editor/scene/3d/node_3d_editor_viewport.h"
 #include "editor/scene/canvas_item_editor_plugin.h"
 #include "editor/settings/editor_settings.h"
 #include "editor/themes/editor_scale.h"
@@ -2490,7 +2491,7 @@ Instead, use the monitors tab to obtain more precise VRAM usage.
 			info_left->add_child(lehb);
 		}
 
-		misc->add_child(memnew(VSeparator));
+		misc->add_child(memnew(HSeparator));
 
 		HBoxContainer *buttons = memnew(HBoxContainer);
 

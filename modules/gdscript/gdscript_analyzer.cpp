@@ -1876,7 +1876,21 @@ void GDScriptAnalyzer::resolve_function_signature(GDScriptParser::FunctionNode *
 			bool valid = p_function->is_static == method_flags.has_flag(METHOD_FLAG_STATIC);
 
 			if (p_function->return_type == nullptr) {
+				// GH-118877. We decided to make an exception to maintain compatibility, since the problem can only be detected at runtime.
+#ifdef DISABLE_DEPRECATED
 				p_function->set_datatype(parent_return_type);
+#else // !DISABLE_DEPRECATED
+				if (function_name == GDScriptLanguage::get_singleton()->strings._get_property_list && method_flags.has_flag(METHOD_FLAG_VIRTUAL)) {
+					GDScriptParser::DataType array_type;
+					array_type.type_source = GDScriptParser::DataType::ANNOTATED_INFERRED;
+					array_type.kind = GDScriptParser::DataType::BUILTIN;
+					array_type.builtin_type = Variant::ARRAY;
+
+					p_function->set_datatype(array_type);
+				} else {
+					p_function->set_datatype(parent_return_type);
+				}
+#endif // DISABLE_DEPRECATED
 			} else {
 				// Check return type covariance.
 				GDScriptParser::DataType return_type = p_function->get_datatype();
@@ -2905,6 +2919,8 @@ void GDScriptAnalyzer::reduce_assignment(GDScriptParser::AssignmentNode *p_assig
 			}
 		}
 	}
+
+	warn_confusable_temporary_modification(p_assignment);
 #endif // DEBUG_ENABLED
 
 	if (p_assignment->assigned_value == nullptr || p_assignment->assignee == nullptr) {
@@ -3270,6 +3286,16 @@ void GDScriptAnalyzer::reduce_call(GDScriptParser::CallNode *p_call, bool p_is_a
 			// Reference types are not suited for compile-time construction.
 			// Because in this case they would be the same reference in all constructed values.
 			if (all_is_constant && !Variant::is_type_shared(builtin_type)) {
+				// A workaround for GH-89357.
+				if (builtin_type == Variant::COLOR && !p_call->arguments.is_empty() && p_call->arguments[0]->reduced_value.get_type() == Variant::STRING) {
+					const String code = p_call->arguments[0]->reduced_value;
+					if (!Color::html_is_valid(code) && Color::find_named_color(code) == -1) {
+						push_error(vformat(R"(Invalid color code "%s".)", code), p_call->arguments[0]);
+						p_call->set_datatype(call_type);
+						return;
+					}
+				}
+
 				// Construct here.
 				Vector<const Variant *> args;
 				for (int i = 0; i < p_call->arguments.size(); i++) {
@@ -3586,6 +3612,10 @@ void GDScriptAnalyzer::reduce_call(GDScriptParser::CallNode *p_call, bool p_is_a
 			base_type = subscript->base->get_datatype();
 			is_self = subscript->base->type == GDScriptParser::Node::SELF;
 		}
+
+#ifdef DEBUG_ENABLED
+		warn_confusable_temporary_modification(subscript);
+#endif // DEBUG_ENABLED
 	} else {
 		// Invalid call. Error already sent in parser.
 		// TODO: Could check if Callable here too.
@@ -5127,6 +5157,10 @@ void GDScriptAnalyzer::reduce_subscript(GDScriptParser::SubscriptNode *p_subscri
 	}
 
 	p_subscript->set_datatype(result_type);
+
+#ifdef DEBUG_ENABLED
+	warn_confusable_temporary_modification(p_subscript);
+#endif // DEBUG_ENABLED
 }
 
 void GDScriptAnalyzer::reduce_ternary_op(GDScriptParser::TernaryOpNode *p_ternary_op, bool p_is_root) {
@@ -6092,6 +6126,7 @@ void GDScriptAnalyzer::validate_call_arg(const List<GDScriptParser::DataType> &p
 }
 
 #ifdef DEBUG_ENABLED
+
 void GDScriptAnalyzer::is_shadowing(GDScriptParser::IdentifierNode *p_identifier, const String &p_context, const bool p_in_local_scope) {
 	const StringName &name = p_identifier->name;
 
@@ -6170,6 +6205,62 @@ void GDScriptAnalyzer::is_shadowing(GDScriptParser::IdentifierNode *p_identifier
 		native_base_class = ClassDB::get_parent_class(native_base_class);
 	}
 }
+
+void GDScriptAnalyzer::warn_confusable_temporary_modification(GDScriptParser::ExpressionNode *p_expression) {
+	ERR_FAIL_NULL(p_expression);
+
+	GDScriptParser::ExpressionNode *current = nullptr;
+	if (p_expression->type == GDScriptParser::Node::ASSIGNMENT) {
+		current = static_cast<GDScriptParser::AssignmentNode *>(p_expression)->assignee;
+	} else if (p_expression->type == GDScriptParser::Node::SUBSCRIPT) {
+		current = static_cast<GDScriptParser::SubscriptNode *>(p_expression);
+	} else {
+		ERR_FAIL_MSG("GDScript bug: Invalid expression type.");
+	}
+
+	while (current && current->type == GDScriptParser::Node::SUBSCRIPT) {
+		GDScriptParser::SubscriptNode *subscript = static_cast<GDScriptParser::SubscriptNode *>(current);
+		GDScriptParser::ExpressionNode *base = subscript->base;
+		if (base && base->datatype.is_typed_container_type() && !base->datatype.is_meta_type) {
+			GDScriptParser::IdentifierNode *base_id = nullptr;
+			GDScriptParser::DataType scope_type;
+			if (base->type == GDScriptParser::Node::IDENTIFIER) {
+				base_id = static_cast<GDScriptParser::IdentifierNode *>(base);
+				scope_type = type_from_metatype(parser->current_class->datatype);
+			} else if (base->type == GDScriptParser::Node::SUBSCRIPT) {
+				GDScriptParser::SubscriptNode *base_subscript = static_cast<GDScriptParser::SubscriptNode *>(base);
+				if (base_subscript->is_attribute) {
+					base_id = base_subscript->attribute;
+					if (base_subscript->base) {
+						scope_type = base_subscript->base->datatype;
+					}
+				}
+			}
+
+			if (base_id && base_id->source == GDScriptParser::IdentifierNode::INHERITED_VARIABLE) {
+				const StringName &scope_native_type = scope_type.native_type;
+				if (class_exists(scope_native_type) && ClassDB::has_property(scope_native_type, base_id->name)) {
+					if (p_expression->type == GDScriptParser::Node::ASSIGNMENT) {
+						parser->push_warning(p_expression, GDScriptWarning::CONFUSABLE_TEMPORARY_MODIFICATION, scope_native_type, base_id->name);
+					} else if (p_expression->type == GDScriptParser::Node::SUBSCRIPT) {
+						StringName member;
+						if (subscript->is_attribute && subscript->attribute) {
+							member = subscript->attribute->name;
+						}
+
+						const Variant::Type builtin_type = base->datatype.builtin_type;
+						if (member && Variant::has_builtin_method(builtin_type, member) && !Variant::is_builtin_method_const(builtin_type, member)) {
+							parser->push_warning(subscript, GDScriptWarning::CONFUSABLE_TEMPORARY_MODIFICATION, scope_native_type, base_id->name, member);
+						}
+					}
+				}
+			}
+		}
+
+		current = base;
+	}
+}
+
 #endif // DEBUG_ENABLED
 
 GDScriptParser::DataType GDScriptAnalyzer::get_operation_type(Variant::Operator p_operation, const GDScriptParser::DataType &p_a, bool &r_valid, const GDScriptParser::Node *p_source) {

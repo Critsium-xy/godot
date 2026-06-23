@@ -585,8 +585,10 @@ EditorPropertyTextEnum::EditorPropertyTextEnum() {
 	option_button->set_accessibility_name(TTRC("Enum Options"));
 	option_button->set_h_size_flags(SIZE_EXPAND_FILL);
 	option_button->set_clip_text(true);
+	option_button->set_fit_to_longest_item(false);
 	option_button->set_flat(true);
-	option_button->set_search_bar_enabled_on_item_count(10);
+	option_button->set_search_bar_enabled(true);
+	option_button->set_search_bar_min_item_count(10);
 	option_button->set_theme_type_variation(SNAME("EditorInspectorButton"));
 	option_button->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 	default_layout->add_child(option_button);
@@ -800,16 +802,7 @@ void EditorPropertyPath::_update_uid_icon() {
 
 void EditorPropertyPath::_drop_data_fw(const Point2 &p_point, const Variant &p_data, Control *p_from) {
 	const Dictionary drag_data = p_data;
-	if (!drag_data.has("type")) {
-		return;
-	}
-	if (String(drag_data["type"]) != "files") {
-		return;
-	}
 	const Vector<String> filesPaths = drag_data["files"];
-	if (filesPaths.is_empty()) {
-		return;
-	}
 
 	_path_selected(filesPaths[0]);
 }
@@ -819,17 +812,31 @@ bool EditorPropertyPath::_can_drop_data_fw(const Point2 &p_point, const Variant 
 	if (!drag_data.has("type")) {
 		return false;
 	}
-	if (String(drag_data["type"]) != "files") {
-		return false;
-	}
 	const Vector<String> filesPaths = drag_data["files"];
-	if (filesPaths.is_empty()) {
-		return false;
-	}
+	if (folder) {
+		if (String(drag_data["type"]) != "files_and_dirs") {
+			return false;
+		}
+		if (filesPaths.size() > 1) {
+			for (const String &p : filesPaths) {
+				if (!p.ends_with("/")) {
+					return false;
+				}
+			}
+		}
+		return true;
+	} else {
+		if (String(drag_data["type"]) != "files") {
+			return false;
+		}
+		if (filesPaths.is_empty()) {
+			return false;
+		}
 
-	for (const String &extension : extensions) {
-		if (filesPaths[0].ends_with(extension.substr(1))) {
-			return true;
+		for (const String &extension : extensions) {
+			if (filesPaths[0].ends_with(extension.substr(1))) {
+				return true;
+			}
 		}
 	}
 
@@ -991,10 +998,12 @@ OptionButton *EditorPropertyEnum::get_option_button() {
 EditorPropertyEnum::EditorPropertyEnum() {
 	options = memnew(OptionButton);
 	options->set_clip_text(true);
+	options->set_fit_to_longest_item(false);
 	options->set_flat(true);
 	options->set_theme_type_variation(SNAME("EditorInspectorButton"));
 	options->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
-	options->set_search_bar_enabled_on_item_count(10);
+	options->set_search_bar_enabled(true);
+	options->set_search_bar_min_item_count(10);
 	add_child(options);
 	add_focusable(options);
 	options->connect(SceneStringName(item_selected), callable_mp(this, &EditorPropertyEnum::_option_selected));
@@ -2463,6 +2472,7 @@ EditorPropertyQuaternion::EditorPropertyQuaternion() {
 	warning->set_theme_type_variation(SNAME("EditorInspectorButton"));
 	warning->connect(SceneStringName(pressed), callable_mp(this, &EditorPropertyQuaternion::_warning_pressed));
 	warning_dialog = memnew(AcceptDialog);
+	warning_dialog->set_flag(Window::FLAG_RESIZE_DISABLED, true);
 	add_child(warning_dialog);
 	warning_dialog->set_text(TTR("Temporary Euler will not be stored in the object with the original value. Instead, it will be stored as Quaternion with irreversible conversion.\nThis is due to the fact that the result of Euler->Quaternion can be determined uniquely, but the result of Quaternion->Euler can be multi-existent."));
 
@@ -3405,6 +3415,7 @@ void EditorPropertyResource::_resource_selected(const Ref<Resource> &p_resource,
 	if (!p_inspect && use_sub_inspector) {
 		bool unfold = !get_edited_object()->editor_is_section_unfolded(get_edited_property());
 		get_edited_object()->editor_set_section_unfold(get_edited_property(), unfold);
+		user_opened_editor = unfold;
 		update_property();
 	} else if (!is_checkable() || is_checked()) {
 		emit_signal(SNAME("resource_selected"), get_edited_property(), p_resource);
@@ -3519,7 +3530,7 @@ void EditorPropertyResource::_sub_inspector_object_id_selected(int p_id) {
 void EditorPropertyResource::_open_editor_pressed() {
 	Ref<Resource> res = get_edited_property_value();
 	if (res.is_valid()) {
-		EditorNode::get_singleton()->edit_item(res.ptr(), this);
+		EditorNode::get_singleton()->edit_item(res.ptr(), this, user_opened_editor);
 	}
 }
 
@@ -3723,6 +3734,8 @@ void EditorPropertyResource::update_property() {
 	resource_picker->set_edited_resource_no_check(res);
 	const Ref<Resource> &real_res = get_edited_property_value();
 	resource_picker->set_force_allow_unique(real_res.is_null() && res.is_valid());
+
+	user_opened_editor = false;
 }
 
 void EditorPropertyResource::collapse_all_folding() {
