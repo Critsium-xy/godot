@@ -427,7 +427,7 @@ void ShaderMaterial::set_shader_parameter(const StringName &p_param, const Varia
 		Variant *v = param_cache.getptr(p_param);
 		if (!v) {
 			// Never assigned, also update the remap cache.
-			remap_cache["shader_parameter/" + p_param.operator String()] = p_param;
+			remap_cache["shader_parameter/" + p_param.string()] = p_param;
 			param_cache.insert(p_param, p_value);
 		} else {
 			*v = p_value;
@@ -2032,6 +2032,24 @@ void fragment() {)";
 		code += R"(	vec3 detail_norm = mix(NORMAL_MAP, detail_norm_tex.rgb, detail_tex.a);
 	NORMAL_MAP = mix(NORMAL_MAP, detail_norm, detail_mask_tex.r);
 	ALBEDO.rgb = mix(ALBEDO.rgb, detail, detail_mask_tex.r);
+)";
+	}
+
+	bool streaming_enabled = false;
+#ifdef MODULE_TEXTURE_STREAMING_ENABLED
+	streaming_enabled = GLOBAL_GET_CACHED(bool, "rendering/textures/streaming/enabled");
+#endif
+	if (streaming_enabled && flags[FLAG_UV1_USE_TRIPLANAR]) {
+		code += R"(
+	// Write triplanar UV to UV for texture streaming feedback.
+	// Pick the UV projection of the dominant triplanar axis.
+	if (uv1_power_normal.x >= uv1_power_normal.y && uv1_power_normal.x >= uv1_power_normal.z) {
+		STREAMING_UV = uv1_triplanar_pos.zy * vec2(-1.0, 1.0);
+	} else if (uv1_power_normal.y >= uv1_power_normal.z) {
+		STREAMING_UV = uv1_triplanar_pos.xz;
+	} else {
+		STREAMING_UV = uv1_triplanar_pos.xy;
+	}
 )";
 	}
 
