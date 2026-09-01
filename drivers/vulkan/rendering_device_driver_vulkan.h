@@ -109,6 +109,14 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 		bool validation = false;
 	};
 
+	// Runtime-sized descriptor arrays, needed by the raytracing bindless texture set.
+	struct DescriptorIndexingCapabilities {
+		bool shader_sampled_image_array_non_uniform_indexing = false;
+		bool descriptor_binding_partially_bound = false;
+		bool descriptor_binding_variable_descriptor_count = false;
+		bool runtime_descriptor_array = false;
+	};
+
 	struct DeviceFunctions {
 		PFN_vkCreateSwapchainKHR CreateSwapchainKHR = nullptr;
 		PFN_vkDestroySwapchainKHR DestroySwapchainKHR = nullptr;
@@ -165,6 +173,7 @@ class RenderingDeviceDriverVulkan : public RenderingDeviceDriver {
 	AccelerationStructureCapabilities acceleration_structure_capabilities;
 	bool ray_query_support = false;
 	RaytracingCapabilities raytracing_capabilities;
+	DescriptorIndexingCapabilities descriptor_indexing_capabilities;
 	bool pipeline_cache_control_support = false;
 	bool device_fault_support = false;
 	bool framebuffer_depth_resolve = false;

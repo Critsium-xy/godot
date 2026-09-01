@@ -1041,6 +1041,11 @@ Error RenderingDeviceDriverVulkan::_check_device_capabilities() {
 				vulkan_memory_model_support = device_features_vk_1_2.vulkanMemoryModel;
 				vulkan_memory_model_device_scope_support = device_features_vk_1_2.vulkanMemoryModelDeviceScope;
 			}
+			// Descriptor indexing, required for the raytracing bindless texture array.
+			descriptor_indexing_capabilities.shader_sampled_image_array_non_uniform_indexing = device_features_vk_1_2.shaderSampledImageArrayNonUniformIndexing;
+			descriptor_indexing_capabilities.descriptor_binding_partially_bound = device_features_vk_1_2.descriptorBindingPartiallyBound;
+			descriptor_indexing_capabilities.descriptor_binding_variable_descriptor_count = device_features_vk_1_2.descriptorBindingVariableDescriptorCount;
+			descriptor_indexing_capabilities.runtime_descriptor_array = device_features_vk_1_2.runtimeDescriptorArray;
 		} else {
 			if (enabled_device_extension_names.has(VK_KHR_SHADER_FLOAT16_INT8_EXTENSION_NAME)) {
 				shader_capabilities.shader_float16_is_supported = shader_features.shaderFloat16;
@@ -1370,6 +1375,18 @@ Error RenderingDeviceDriverVulkan::_initialize_device(const LocalVector<VkDevice
 	shader_features.shaderFloat16 = shader_capabilities.shader_float16_is_supported;
 	shader_features.shaderInt8 = shader_capabilities.shader_int8_is_supported;
 	create_info_next = &shader_features;
+
+	// Runtime-sized descriptor arrays, used by the raytracing bindless texture set.
+	VkPhysicalDeviceDescriptorIndexingFeatures descriptor_indexing_features = {};
+	if (descriptor_indexing_capabilities.runtime_descriptor_array) {
+		descriptor_indexing_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_FEATURES;
+		descriptor_indexing_features.pNext = create_info_next;
+		descriptor_indexing_features.shaderSampledImageArrayNonUniformIndexing = descriptor_indexing_capabilities.shader_sampled_image_array_non_uniform_indexing;
+		descriptor_indexing_features.descriptorBindingPartiallyBound = descriptor_indexing_capabilities.descriptor_binding_partially_bound;
+		descriptor_indexing_features.descriptorBindingVariableDescriptorCount = descriptor_indexing_capabilities.descriptor_binding_variable_descriptor_count;
+		descriptor_indexing_features.runtimeDescriptorArray = descriptor_indexing_capabilities.runtime_descriptor_array;
+		create_info_next = &descriptor_indexing_features;
+	}
 
 	VkPhysicalDeviceBufferDeviceAddressFeaturesKHR buffer_device_address_features = {};
 	if (buffer_device_address_support) {
@@ -4328,6 +4345,10 @@ static VkShaderStageFlagBits RD_STAGE_TO_VK_SHADER_STAGE_BITS[RDD::SHADER_STAGE_
 	VK_SHADER_STAGE_INTERSECTION_BIT_KHR,
 };
 
+// A runtime-sized descriptor array declares no size in the shader, so the set layout
+// reserves this many slots and the real count is pinned when the set is allocated.
+static constexpr uint32_t VK_UNBOUNDED_DESCRIPTOR_COUNT = 128000;
+
 RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Ref<RenderingShaderContainer> &p_shader_container, const Vector<ImmutableSampler> &p_immutable_samplers) {
 	ShaderReflection shader_refl = p_shader_container->get_shader_reflection();
 	ShaderInfo shader_info;
@@ -4374,11 +4395,11 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 				} break;
 				case UNIFORM_TYPE_SAMPLER_WITH_TEXTURE: {
 					layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-					layout_binding.descriptorCount = uniform.length;
+					layout_binding.descriptorCount = uniform.unbounded ? VK_UNBOUNDED_DESCRIPTOR_COUNT : uniform.length;
 				} break;
 				case UNIFORM_TYPE_TEXTURE: {
 					layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-					layout_binding.descriptorCount = uniform.length;
+					layout_binding.descriptorCount = uniform.unbounded ? VK_UNBOUNDED_DESCRIPTOR_COUNT : uniform.length;
 				} break;
 				case UNIFORM_TYPE_IMAGE: {
 					layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
@@ -4531,11 +4552,37 @@ RDD::ShaderID RenderingDeviceDriverVulkan::shader_create_from_container(const Re
 		placeholder_binding.stageFlags = VK_SHADER_STAGE_ALL;
 
 		for (uint32_t i = 0; i < shader_refl.uniform_sets.size(); i++) {
+			bool has_unbounded = false;
+			for (uint32_t j = 0; j < shader_refl.uniform_sets[i].size(); j++) {
+				if (shader_refl.uniform_sets[i][j].unbounded) {
+					has_unbounded = true;
+					break;
+				}
+			}
+
+			const bool use_binding_flags = has_unbounded && descriptor_indexing_capabilities.descriptor_binding_partially_bound;
+			LocalVector<VkDescriptorBindingFlags> binding_flags;
+			VkDescriptorSetLayoutBindingFlagsCreateInfo binding_flags_info = {};
+			if (use_binding_flags) {
+				binding_flags.resize(vk_set_bindings[i].size());
+				for (uint32_t j = 0; j < binding_flags.size(); j++) {
+					binding_flags[j] = (j < shader_refl.uniform_sets[i].size() && shader_refl.uniform_sets[i][j].unbounded)
+							? (VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT)
+							: 0;
+				}
+				binding_flags_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+				binding_flags_info.bindingCount = binding_flags.size();
+				binding_flags_info.pBindingFlags = binding_flags.ptr();
+			}
+
 			// Empty ones are fine if they were not used according to spec (binding count will be 0).
 			VkDescriptorSetLayoutCreateInfo layout_create_info = {};
 			layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 			layout_create_info.bindingCount = vk_set_bindings[i].size();
 			layout_create_info.pBindings = vk_set_bindings[i].ptr();
+			if (use_binding_flags) {
+				layout_create_info.pNext = &binding_flags_info;
+			}
 
 			// ...not so fine on Adreno 5XX.
 			if (adreno_5xx_empty_descriptor_set_layout_workaround && layout_create_info.bindingCount == 0) {
@@ -4767,6 +4814,7 @@ RDD::UniformSetID RenderingDeviceDriverVulkan::uniform_set_create(VectorView<Bou
 	// Immutable samplers will be skipped so we need to track the number of vk_writes used.
 	VkWriteDescriptorSet *vk_writes = ALLOCA_ARRAY(VkWriteDescriptorSet, p_uniforms.size());
 	uint32_t writes_amount = 0;
+	uint32_t variable_descriptor_count = 0;
 	for (uint32_t i = 0; i < p_uniforms.size(); i++) {
 		const BoundUniform &uniform = p_uniforms[i];
 
@@ -4985,6 +5033,10 @@ RDD::UniformSetID RenderingDeviceDriverVulkan::uniform_set_create(VectorView<Bou
 		if (add_write) {
 			vk_writes[writes_amount].dstBinding = uniform.binding;
 			vk_writes[writes_amount].descriptorCount = num_descriptors;
+			if (uniform.variable_count) {
+				ERR_FAIL_COND_V_MSG(variable_descriptor_count > 0, UniformSetID(), "Trying to create a uniform set with multiple variable bindings. Only the last binding can be variable.");
+				variable_descriptor_count = num_descriptors;
+			}
 			writes_amount++;
 		}
 
@@ -5007,6 +5059,16 @@ RDD::UniformSetID RenderingDeviceDriverVulkan::uniform_set_create(VectorView<Bou
 	descriptor_set_allocate_info.descriptorSetCount = 1;
 	const ShaderInfo *shader_info = (const ShaderInfo *)p_shader.id;
 	descriptor_set_allocate_info.pSetLayouts = &shader_info->vk_descriptor_set_layouts[p_set_index];
+
+	// A runtime-sized binding reserves a large maximum in the layout; tell Vulkan how
+	// many descriptors this particular set actually holds.
+	VkDescriptorSetVariableDescriptorCountAllocateInfo variable_count_info = {};
+	if (variable_descriptor_count > 0) {
+		variable_count_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_VARIABLE_DESCRIPTOR_COUNT_ALLOCATE_INFO;
+		variable_count_info.descriptorSetCount = 1;
+		variable_count_info.pDescriptorCounts = &variable_descriptor_count;
+		descriptor_set_allocate_info.pNext = &variable_count_info;
+	}
 
 	VkDescriptorSet vk_descriptor_set = VK_NULL_HANDLE;
 	for (KeyValue<VkDescriptorPool, uint32_t> &E : pool_sets_it->value) {
