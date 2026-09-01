@@ -5368,9 +5368,10 @@ void Viewport::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_scaling_3d_mode"), &Viewport::get_scaling_3d_mode);
 
 	ClassDB::bind_method(D_METHOD("set_scaling_3d_scale", "scale"), &Viewport::set_scaling_3d_scale);
+	ClassDB::bind_method(D_METHOD("get_scaling_3d_scale"), &Viewport::get_scaling_3d_scale);
+
 	ClassDB::bind_method(D_METHOD("set_frame_generation", "frame_generation"), &Viewport::set_frame_generation);
 	ClassDB::bind_method(D_METHOD("get_frame_generation"), &Viewport::get_frame_generation);
-	ClassDB::bind_method(D_METHOD("get_scaling_3d_scale"), &Viewport::get_scaling_3d_scale);
 
 	ClassDB::bind_method(D_METHOD("set_fsr_sharpness", "fsr_sharpness"), &Viewport::set_fsr_sharpness);
 	ClassDB::bind_method(D_METHOD("get_fsr_sharpness"), &Viewport::get_fsr_sharpness);
@@ -5506,6 +5507,11 @@ void Viewport::_bind_methods() {
 	BIND_ENUM_CONSTANT(RENDER_INFO_OBJECTS_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_INFO_PRIMITIVES_IN_FRAME);
 	BIND_ENUM_CONSTANT(RENDER_INFO_DRAW_CALLS_IN_FRAME);
+	BIND_ENUM_CONSTANT(RENDER_INFO_RT_TLAS_INSTANCES);
+	BIND_ENUM_CONSTANT(RENDER_INFO_RT_BLAS_BUILDS);
+	BIND_ENUM_CONSTANT(RENDER_INFO_RT_BLAS_REFITS);
+	BIND_ENUM_CONSTANT(RENDER_INFO_RT_TRIANGLES_BUILT);
+	BIND_ENUM_CONSTANT(RENDER_INFO_RT_TRIANGLES_REFIT);
 	BIND_ENUM_CONSTANT(RENDER_INFO_MAX);
 
 	BIND_ENUM_CONSTANT(RENDER_INFO_TYPE_VISIBLE);
@@ -5542,6 +5548,11 @@ void Viewport::_bind_methods() {
 	BIND_ENUM_CONSTANT(DEBUG_DRAW_INTERNAL_BUFFER);
 	BIND_ENUM_CONSTANT(DEBUG_DRAW_CLUSTER_AREA_LIGHTS);
 	BIND_ENUM_CONSTANT(DEBUG_DRAW_AREA_LIGHT_ATLAS);
+	BIND_ENUM_CONSTANT(DEBUG_DRAW_DLSS_RR_DIFFUSE_ALBEDO);
+	BIND_ENUM_CONSTANT(DEBUG_DRAW_DLSS_RR_SPECULAR_ALBEDO);
+	BIND_ENUM_CONSTANT(DEBUG_DRAW_DLSS_RR_NORMAL_ROUGHNESS);
+	BIND_ENUM_CONSTANT(DEBUG_DRAW_DLSS_RR_SPECULAR_HIT_DIST);
+	BIND_ENUM_CONSTANT(DEBUG_DRAW_RECONSTRUCTED_DEPTH);
 
 	BIND_ENUM_CONSTANT(DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_NEAREST);
 	BIND_ENUM_CONSTANT(DEFAULT_CANVAS_ITEM_TEXTURE_FILTER_LINEAR);

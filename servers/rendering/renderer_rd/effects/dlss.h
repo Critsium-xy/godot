@@ -69,6 +69,15 @@ public:
 		Projection clip_to_prev_clip;
 		Transform3D cam_transform;
 		bool dlss_g = false;
+
+		// DLSS Ray Reconstruction. These guide buffers only exist on the path traced
+		// path; with dlss_rr false the effect runs as plain super resolution.
+		bool dlss_rr = false;
+		bool dlss_rr_alpha_upscaling = false;
+		RID dlss_rr_diffuse_albedo;
+		RID dlss_rr_specular_albedo;
+		RID dlss_rr_normal_roughness; // World-space normal (XYZ) + roughness (W).
+		RID dlss_rr_specular_hit_dist; // R16F, -1 for sky.
 	} last_parameters;
 
 	DLSSEffect *last_effect = nullptr;

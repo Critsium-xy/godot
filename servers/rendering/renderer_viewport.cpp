@@ -32,6 +32,7 @@
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
+#include "core/error/error_macros.h"
 #include "core/math/transform_interpolator.h"
 #include "core/object/worker_thread_pool.h"
 #include "core/os/os.h"
@@ -53,6 +54,10 @@
 #include "servers/xr/xr_interface.h"
 #include "servers/xr/xr_server.h"
 #endif // XR_DISABLED
+
+#ifdef STREAMLINE_ENABLED
+#include "drivers/streamline/streamline_context.h"
+#endif
 
 static Transform2D _canvas_get_transform(RendererViewport::Viewport *p_viewport, RendererCanvasCull::Canvas *p_canvas, RendererViewport::Viewport::CanvasData *p_canvas_data, const Vector2 &p_vp_size) {
 	Transform2D xf = p_viewport->global_transform;

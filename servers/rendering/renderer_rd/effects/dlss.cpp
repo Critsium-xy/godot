@@ -56,6 +56,7 @@ public:
 	sl::Constants constants;
 	sl::DLSSOptions current_dlss_options;
 	sl::DLSSOptimalSettings current_optimal_settings;
+	sl::DLSSDOptions current_dlss_d_options; // DLSS Ray Reconstruction.
 
 	DLSSContextInner();
 	virtual ~DLSSContextInner();
@@ -257,7 +258,7 @@ void DLSSEffect::upscale(const DLSSContext::Parameters &p_params) {
 	// Inject DLSS into the render graph. The output is written by DLSS, so it has to be
 	// declared read-write: that both makes the graph order the following passes after us
 	// and leaves the texture in the general layout DLSS needs to write into.
-	RD::CallbackResource res[5];
+	RD::CallbackResource res[9];
 	int num_resources = 0;
 	res[num_resources].rid = p_params.color;
 	res[num_resources++].usage = RD::CALLBACK_RESOURCE_USAGE_TEXTURE_SAMPLE;
@@ -265,6 +266,14 @@ void DLSSEffect::upscale(const DLSSContext::Parameters &p_params) {
 	res[num_resources++].usage = RD::CALLBACK_RESOURCE_USAGE_TEXTURE_SAMPLE;
 	res[num_resources].rid = p_params.velocity;
 	res[num_resources++].usage = RD::CALLBACK_RESOURCE_USAGE_TEXTURE_SAMPLE;
+	if (p_params.dlss_rr) {
+		for (RID guide : { p_params.dlss_rr_diffuse_albedo, p_params.dlss_rr_specular_albedo, p_params.dlss_rr_normal_roughness, p_params.dlss_rr_specular_hit_dist }) {
+			if (guide.is_valid()) {
+				res[num_resources].rid = guide;
+				res[num_resources++].usage = RD::CALLBACK_RESOURCE_USAGE_TEXTURE_SAMPLE;
+			}
+		}
+	}
 	res[num_resources].rid = p_params.output;
 	res[num_resources++].usage = RD::CALLBACK_RESOURCE_USAGE_STORAGE_IMAGE_READ_WRITE;
 
@@ -314,8 +323,41 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID p_cmd_buffer, const DLSS
 		++r_num_resources;
 	};
 
-	// Set DLSS options.
-	if (StreamlineContext::get().slDLSSSetOptions != nullptr && StreamlineContext::get().streamline_capabilities.dlss_available) {
+	// Ray Reconstruction denoises and upscales in one step, replacing plain super
+	// resolution. It is only possible when the caller supplied the guide buffers.
+	const bool use_dlss_rr = p_params.dlss_rr &&
+			StreamlineContext::get().slDLSSDSetOptions != nullptr &&
+			StreamlineContext::get().streamline_capabilities.dlss_rr_available;
+
+	if (use_dlss_rr) {
+		context->current_dlss_d_options.mode = context->current_dlss_options.mode;
+		context->current_dlss_d_options.outputWidth = context->current_dlss_options.outputWidth;
+		context->current_dlss_d_options.outputHeight = context->current_dlss_options.outputHeight;
+		context->current_dlss_d_options.colorBuffersHDR = sl::Boolean::eTrue;
+		context->current_dlss_d_options.alphaUpscalingEnabled = p_params.dlss_rr_alpha_upscaling ? sl::Boolean::eTrue : sl::Boolean::eFalse;
+		context->current_dlss_d_options.normalRoughnessMode = sl::DLSSDNormalRoughnessMode::ePacked; // Normal XYZ + roughness W.
+
+		const Transform3D view_matrix = p_params.cam_transform.affine_inverse();
+		context->current_dlss_d_options.worldToCameraView = sl_convert_matrix(Projection(view_matrix));
+		context->current_dlss_d_options.cameraViewToWorld = sl_convert_matrix(Projection(view_matrix).inverse());
+
+		char dlss_preset = p_params.preset;
+		if (dlss_preset == '?') {
+			dlss_preset = StreamlineContext::get().dlss_rr_default_preset;
+		}
+		sl::DLSSDPreset preset = sl::DLSSDPreset::eDefault;
+		if (dlss_preset != '?') {
+			preset = (sl::DLSSDPreset)((int)sl::DLSSDPreset::ePresetD + ((int)dlss_preset - (int)'D'));
+		}
+		context->current_dlss_d_options.dlaaPreset = preset;
+		context->current_dlss_d_options.qualityPreset = preset;
+		context->current_dlss_d_options.balancedPreset = preset;
+		context->current_dlss_d_options.performancePreset = preset;
+		context->current_dlss_d_options.ultraPerformancePreset = preset;
+
+		sl::Result result = StreamlineContext::get().slDLSSDSetOptions(context->viewport, context->current_dlss_d_options);
+		ERR_FAIL_COND_MSG(result != sl::Result::eOk, "Failed to call streamline slDLSSDSetOptions. Result: " + String(StreamlineContext::result_to_string(result)));
+	} else if (StreamlineContext::get().slDLSSSetOptions != nullptr && StreamlineContext::get().streamline_capabilities.dlss_available) {
 		// The colour buffer handed to DLSS is raw, un-exposed linear HDR: tone mapping and
 		// exposure are applied later in the pipeline. Godot's luminance buffer holds average
 		// scene luminance, which is not the exposure multiplier DLSS expects, so rather than
@@ -381,14 +423,21 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID p_cmd_buffer, const DLSS
 
 	// Tag resources.
 	if (StreamlineContext::get().slSetTag != nullptr) {
-		sl::Resource resources[5];
-		sl::ResourceTag resource_tags[5];
+		sl::Resource resources[9];
+		sl::ResourceTag resource_tags[9];
 		int num_resources = 0;
 
 		assign_resource(resources, resource_tags, num_resources, p_params.color, sl::kBufferTypeScalingInputColor, sl::ResourceLifecycle::eValidUntilPresent);
 		assign_resource(resources, resource_tags, num_resources, p_params.output, sl::kBufferTypeScalingOutputColor, sl::ResourceLifecycle::eValidUntilPresent, true);
 		assign_resource(resources, resource_tags, num_resources, p_params.depth, sl::kBufferTypeDepth, sl::ResourceLifecycle::eValidUntilPresent);
 		assign_resource(resources, resource_tags, num_resources, p_params.velocity, sl::kBufferTypeMotionVectors, sl::ResourceLifecycle::eValidUntilPresent);
+
+		if (use_dlss_rr) {
+			assign_resource(resources, resource_tags, num_resources, p_params.dlss_rr_diffuse_albedo, sl::kBufferTypeAlbedo, sl::ResourceLifecycle::eValidUntilPresent);
+			assign_resource(resources, resource_tags, num_resources, p_params.dlss_rr_specular_albedo, sl::kBufferTypeSpecularAlbedo, sl::ResourceLifecycle::eValidUntilPresent);
+			assign_resource(resources, resource_tags, num_resources, p_params.dlss_rr_normal_roughness, sl::kBufferTypeNormalRoughness, sl::ResourceLifecycle::eValidUntilPresent);
+			assign_resource(resources, resource_tags, num_resources, p_params.dlss_rr_specular_hit_dist, sl::kBufferTypeSpecularHitDistance, sl::ResourceLifecycle::eValidUntilPresent);
+		}
 
 		sl::Result result = StreamlineContext::get().slSetTag(context->viewport, resource_tags, num_resources, native_cmdlist);
 		ERR_FAIL_COND_MSG(result != sl::Result::eOk, "Failed to call streamline slSetTag. Result: " + String(StreamlineContext::result_to_string(result)));
@@ -422,11 +471,16 @@ void DLSSEffect::_upscale_internal(RDD::CommandBufferID p_cmd_buffer, const DLSS
 		}
 	}
 
-	// Evaluate DLSS Super Resolution.
-	if (context->current_dlss_options.mode != sl::DLSSMode::eOff && StreamlineContext::get().streamline_capabilities.dlss_available) {
+	// Evaluate DLSS Ray Reconstruction, or plain Super Resolution when no guide buffers exist.
+	if (context->current_dlss_options.mode != sl::DLSSMode::eOff) {
 		const sl::BaseStructure *inputs[] = { &context->viewport };
-		sl::Result result = StreamlineContext::get().slEvaluateFeature(sl::kFeatureDLSS, *StreamlineContext::get().last_token, inputs, 1, native_cmdlist);
-		ERR_FAIL_COND_MSG(result != sl::Result::eOk, "Failed to call streamline slEvaluateFeature for DLSS Super Resolution. Result: " + String(StreamlineContext::result_to_string(result)));
+		if (use_dlss_rr) {
+			sl::Result result = StreamlineContext::get().slEvaluateFeature(sl::kFeatureDLSS_RR, *StreamlineContext::get().last_token, inputs, 1, native_cmdlist);
+			ERR_FAIL_COND_MSG(result != sl::Result::eOk, "Failed to call streamline slEvaluateFeature for DLSS Ray Reconstruction. Result: " + String(StreamlineContext::result_to_string(result)));
+		} else if (StreamlineContext::get().streamline_capabilities.dlss_available) {
+			sl::Result result = StreamlineContext::get().slEvaluateFeature(sl::kFeatureDLSS, *StreamlineContext::get().last_token, inputs, 1, native_cmdlist);
+			ERR_FAIL_COND_MSG(result != sl::Result::eOk, "Failed to call streamline slEvaluateFeature for DLSS Super Resolution. Result: " + String(StreamlineContext::result_to_string(result)));
+		}
 	}
 
 	// Optional post-upscale sharpening through NIS.

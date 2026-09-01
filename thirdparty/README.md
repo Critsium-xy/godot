@@ -1061,6 +1061,7 @@ Patches:
 
 - `0001-zero-size-for-sc-sized-arrays.patch` ([GH-94985](https://github.com/godotengine/godot/pull/94985))
 - `0002-spirv-headers.patch` ([GH-111452](https://github.com/godotengine/godot/pull/111452))
+- `0004-add-SpvOpTypeHitObjectEXT.patch` (raytracing shader execution reordering)
 
 
 ## streamline

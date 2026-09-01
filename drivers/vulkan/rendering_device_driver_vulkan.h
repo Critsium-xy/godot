@@ -708,6 +708,7 @@ public:
 		VkAccelerationStructureKHR vk_acceleration_structure = VK_NULL_HANDLE;
 		// Buffer used for the structure
 		RDD::BufferID buffer;
+		VkDeviceAddress cached_device_address = 0;
 
 		// Alignment of the scratch buffer for building the structure
 		uint32_t scratch_alignment;
@@ -735,6 +736,7 @@ private:
 public:
 	// ----- COMMANDS -----
 	virtual void command_build_blas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer) override final;
+	virtual void command_update_blas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer) override final;
 	virtual void command_build_tlas(CommandBufferID p_cmd_buffer, AccelerationStructureID p_acceleration_structure, BufferID p_scratch_buffer, BufferID p_instance_buffer, uint32_t p_instance_offset, uint32_t p_instance_count) override final;
 	virtual void command_bind_raytracing_pipeline(CommandBufferID p_cmd_buffer, RaytracingPipelineID p_pipeline) override final;
 	virtual void command_bind_raytracing_uniform_set(CommandBufferID p_cmd_buffer, UniformSetID p_uniform_set, ShaderID p_shader, uint32_t p_set_index) override final;

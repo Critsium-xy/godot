@@ -62,11 +62,14 @@
 
 #define RB_TEX_BACK_COLOR SNAME("back_color")
 #define RB_TEX_BACK_DEPTH SNAME("back_depth")
+#define RB_TEX_RECONSTRUCTED_DEPTH SNAME("reconstructed_depth")
 
 class RenderSceneBuffersRD : public RenderSceneBuffers {
 	GDCLASS(RenderSceneBuffersRD, RenderSceneBuffers);
 
 private:
+	bool upscaler_ready = false;
+	bool depth_reconstruct_requested = false;
 	bool can_be_storage = true;
 	bool force_hdr = false;
 	uint32_t max_cluster_elements = 512;
@@ -83,10 +86,8 @@ private:
 	// The internal size of the textures we render 3D to in case we render at a lower resolution and upscale
 	Size2i internal_size = Size2i(0, 0);
 	RSE::ViewportScaling3DMode scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_OFF;
-	float fsr_sharpness = 0.2f;
 	bool frame_generation = false;
-	// DLSS needs a few warm-up frames before its output can be consumed.
-	bool upscaler_ready = false;
+	float fsr_sharpness = 0.2f;
 	float texture_mipmap_bias = 0.0f;
 	RSE::ViewportAnisotropicFiltering anisotropic_filtering_level = RSE::VIEWPORT_ANISOTROPY_4X;
 
@@ -315,6 +316,11 @@ public:
 
 	_FORCE_INLINE_ bool get_upscaler_ready() const { return upscaler_ready; }
 	_FORCE_INLINE_ void set_upscaler_ready(bool p_ready) { upscaler_ready = p_ready; }
+
+	// Set by the path traced path, which needs full-resolution depth reconstructed
+	// from the low-resolution buffer once upscaling has run.
+	_FORCE_INLINE_ bool get_depth_reconstruct_requested() const { return depth_reconstruct_requested; }
+	_FORCE_INLINE_ void set_depth_reconstruct_requested(bool p_requested) { depth_reconstruct_requested = p_requested; }
 
 	_FORCE_INLINE_ bool has_upscaled_texture() const {
 		return has_texture(RB_SCOPE_BUFFERS, RB_TEX_COLOR_UPSCALED);

@@ -2503,6 +2503,7 @@ public:
 
 protected:
 	TextureType texture_type = TYPE_DATA;
+	bool alpha_hint = false;
 	ColorDefault color_default = COLOR_DEFAULT_WHITE;
 	TextureFilter texture_filter = FILTER_DEFAULT;
 	TextureRepeat texture_repeat = REPEAT_DEFAULT;
@@ -2529,6 +2530,9 @@ public:
 
 	void set_texture_type(TextureType p_type);
 	TextureType get_texture_type() const;
+
+	void set_alpha_hint(bool p_alpha_hint);
+	bool get_alpha_hint() const;
 
 	void set_color_default(ColorDefault p_default);
 	ColorDefault get_color_default() const;
