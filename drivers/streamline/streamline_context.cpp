@@ -62,6 +62,7 @@
 #endif
 
 #include "core/config/engine.h"
+#include "core/os/os.h"
 #include "core/config/project_settings.h"
 
 StreamlineContext &StreamlineContext::get() {
@@ -129,14 +130,27 @@ void StreamlineContext::load_functions_post_init() {
 }
 
 static void _enumerate_support(StreamlineContext *self, sl::AdapterInfo &adapterInfo, StreamlineCapabilities &outSupport) {
-	if (self->slIsFeatureSupported) {
-		outSupport.dlss_available = self->slIsFeatureSupported(sl::kFeatureDLSS, adapterInfo) == sl::Result::eOk;
-		outSupport.dlss_g_available = self->slIsFeatureSupported(sl::kFeatureDLSS_G, adapterInfo) == sl::Result::eOk;
-		outSupport.dlss_rr_available = self->slIsFeatureSupported(sl::kFeatureDLSS_RR, adapterInfo) == sl::Result::eOk;
-		outSupport.reflex_available = self->slIsFeatureSupported(sl::kFeatureReflex, adapterInfo) == sl::Result::eOk;
-		outSupport.pcl_available = self->slIsFeatureSupported(sl::kFeaturePCL, adapterInfo) == sl::Result::eOk;
-		outSupport.nis_available = self->slIsFeatureSupported(sl::kFeatureNIS, adapterInfo) == sl::Result::eOk;
+	if (!self->slIsFeatureSupported) {
+		return;
 	}
+
+	// Report why a feature is unavailable rather than only that it is; the result
+	// distinguishes an unsupported adapter from an out of date driver or a missing plugin.
+	const bool verbose = OS::get_singleton() && OS::get_singleton()->is_stdout_verbose();
+	auto supported = [&](sl::Feature p_feature, const char *p_name) {
+		sl::Result result = self->slIsFeatureSupported(p_feature, adapterInfo);
+		if (verbose) {
+			print_line(vformat("Streamline: %s -> %s", p_name, StreamlineContext::result_to_string(result)));
+		}
+		return result == sl::Result::eOk;
+	};
+
+	outSupport.dlss_available = supported(sl::kFeatureDLSS, "DLSS");
+	outSupport.dlss_g_available = supported(sl::kFeatureDLSS_G, "DLSS Frame Generation");
+	outSupport.dlss_rr_available = supported(sl::kFeatureDLSS_RR, "DLSS Ray Reconstruction");
+	outSupport.reflex_available = supported(sl::kFeatureReflex, "Reflex");
+	outSupport.pcl_available = supported(sl::kFeaturePCL, "PCL");
+	outSupport.nis_available = supported(sl::kFeatureNIS, "NIS");
 }
 
 #if STREAMLINE_ENABLED_VULKAN
@@ -324,6 +338,20 @@ const char *StreamlineContext::result_to_string(sl::Result result) {
 	}
 }
 
+static void _streamline_log_callback(sl::LogType p_type, const char *p_msg) {
+	String msg = String("Streamline: ") + String::utf8(p_msg).strip_edges();
+	if (msg.is_empty()) {
+		return;
+	}
+	if (p_type == sl::LogType::eError) {
+		ERR_PRINT(msg);
+	} else if (p_type == sl::LogType::eWarn) {
+		WARN_PRINT(msg);
+	} else {
+		print_line(msg);
+	}
+}
+
 void StreamlineContext::initialize(bool d3d12) {
 	StreamlineContext::get().is_game = true;
 	if (Engine::get_singleton()->is_editor_hint() || Engine::get_singleton()->is_project_manager_hint()) {
@@ -365,7 +393,8 @@ void StreamlineContext::initialize(bool d3d12) {
 
 	if (bool(GLOBAL_GET("rendering/streamline/streamline_log"))) {
 		pref.logLevel = sl::LogLevel::eVerbose;
-		pref.showConsole = true;
+		pref.showConsole = false;
+		pref.logMessageCallback = &_streamline_log_callback;
 	} else {
 		pref.logLevel = sl::LogLevel::eOff;
 		pref.showConsole = false;
