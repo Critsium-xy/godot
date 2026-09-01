@@ -50,6 +50,10 @@
 #include "modules/glslang/shader_compile.h"
 #endif
 
+#ifdef STREAMLINE_ENABLED
+#include "drivers/streamline/streamline_context.h"
+#endif
+
 #define FORCE_SEPARATE_PRESENT_QUEUE 0
 #define PRINT_FRAMEBUFFER_FORMAT 0
 
@@ -8598,8 +8602,13 @@ Error RenderingDevice::initialize(RenderingContextDriver *p_context, DisplayServ
 			rendering_method = "Forward+";
 		}
 
+		String streamline_enabled;
+#ifdef STREAMLINE_ENABLED
+		streamline_enabled = StreamlineContext::get().slInit != nullptr ? " - Streamline" : String();
+#endif
+
 		// Output our device version.
-		Engine::get_singleton()->print_header(vformat("%s %s - %s - Using Device #%d: %s - %s", get_device_api_name(), get_device_api_version(), rendering_method, device_index, _get_device_vendor_name(device), device.name));
+		Engine::get_singleton()->print_header(vformat("%s %s - %s%s - Using Device #%d: %s - %s", get_device_api_name(), get_device_api_version(), rendering_method, streamline_enabled, device_index, _get_device_vendor_name(device), device.name));
 	}
 
 	// Pick the main queue family. It is worth noting we explicitly do not request the transfer bit, as apparently the specification defines
@@ -8942,7 +8951,9 @@ uint64_t RenderingDevice::get_driver_resource(DriverResource p_resource, RID p_r
 			break;
 		case DRIVER_RESOURCE_TEXTURE:
 		case DRIVER_RESOURCE_TEXTURE_VIEW:
-		case DRIVER_RESOURCE_TEXTURE_DATA_FORMAT: {
+		case DRIVER_RESOURCE_TEXTURE_DATA_FORMAT:
+		case DRIVER_RESOURCE_TEXTURE_DEVICE_MEMORY:
+		case DRIVER_RESOURCE_TEXTURE_USAGE_FLAGS: {
 			Texture *tex = texture_owner.get_or_null(p_rid);
 			ERR_FAIL_NULL_V(tex, 0);
 
@@ -9470,6 +9481,8 @@ void RenderingDevice::_bind_methods() {
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_TEXTURE);
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_TEXTURE_VIEW);
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_TEXTURE_DATA_FORMAT);
+	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_TEXTURE_DEVICE_MEMORY);
+	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_TEXTURE_USAGE_FLAGS);
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_SAMPLER);
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_UNIFORM_SET);
 	BIND_ENUM_CONSTANT(DRIVER_RESOURCE_BUFFER);

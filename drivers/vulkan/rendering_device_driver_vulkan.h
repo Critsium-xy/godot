@@ -774,6 +774,7 @@ public:
 	/**** DEBUG *****/
 	/****************/
 	virtual void command_insert_breadcrumb(CommandBufferID p_cmd_buffer, uint32_t p_data) override final;
+	virtual void *command_buffer_get_native_handle(CommandBufferID p_cmd_buffer) override final;
 	void print_lost_device_info();
 	void on_device_lost() const;
 	static String get_vulkan_result(VkResult err);

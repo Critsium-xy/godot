@@ -42,6 +42,10 @@
 #include "core/os/thread.h"
 #endif
 
+#ifdef STREAMLINE_ENABLED
+#include "drivers/streamline/streamline.h"
+#endif
+
 #include <thirdparty/gamepadmotionhelpers/GamepadMotion.hpp>
 
 #define STANDARD_GRAVITY 9.80665f
@@ -878,6 +882,16 @@ void Input::_parse_input_event_impl(const Ref<InputEvent> &p_event, bool p_is_em
 	//   require additional handling by this class.
 
 	Ref<InputEventKey> k = p_event;
+#ifdef STREAMLINE_ENABLED
+	if (k.is_valid() && !k->is_echo() && k->get_keycode() == Key::F13) {
+		// The NVIDIA driver injects F13 to measure PC latency; report it back to
+		// Streamline and swallow it so it never reaches the game as a real key.
+		if (Streamline::get_singleton()) {
+			Streamline::get_singleton()->emit_marker(STREAMLINE_MARKER_PC_PING);
+		}
+		return;
+	}
+#endif
 	if (k.is_valid() && !k->is_echo() && k->get_keycode() != Key::NONE) {
 		if (k->is_pressed()) {
 			keys_pressed.insert(k->get_keycode());

@@ -38,6 +38,10 @@
 #include "drivers/vulkan/rendering_device_driver_vulkan.h"
 #include "drivers/vulkan/vulkan_hooks.h"
 
+#if defined(USE_VOLK) && defined(STREAMLINE_ENABLED) && defined(WINDOWS_ENABLED)
+#include <windows.h>
+#endif
+
 #ifndef DEV_ENABLED
 #include "core/os/os.h"
 #endif
@@ -902,7 +906,18 @@ Error RenderingContextDriverVulkan::_create_vulkan_instance(const VkInstanceCrea
 Error RenderingContextDriverVulkan::initialize() {
 	Error err;
 
-#ifdef USE_VOLK
+#if defined(USE_VOLK) && defined(STREAMLINE_ENABLED) && defined(WINDOWS_ENABLED)
+	// Streamline interposes the Vulkan loader. When its interposer is present, entry
+	// points have to be resolved through it, otherwise DLSS never sees our commands.
+	HMODULE streamline_module = LoadLibraryA("sl.interposer.dll");
+	if (streamline_module != nullptr) {
+		// Note: the function pointer is cast through a void function pointer to silence a cast-function-type warning on GCC 8.
+		PFN_vkGetInstanceProcAddr vk_get_instance_proc_addr = (PFN_vkGetInstanceProcAddr)(void (*)())GetProcAddress(streamline_module, "vkGetInstanceProcAddr");
+		volkInitializeCustom(vk_get_instance_proc_addr);
+	} else if (volkInitialize() != VK_SUCCESS) {
+		return FAILED;
+	}
+#elif defined(USE_VOLK)
 	if (volkInitialize() != VK_SUCCESS) {
 		return FAILED;
 	}

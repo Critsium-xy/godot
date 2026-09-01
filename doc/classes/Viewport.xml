@@ -348,6 +348,10 @@
 			Determines how sharp the upscaled image will be when using the FSR upscaling mode. Sharpness halves with every whole number. Values go from 0.0 (sharpest) to 2.0. Values above 2.0 won't make a visible difference.
 			To control this property on the root viewport, set the [member ProjectSettings.rendering/scaling_3d/fsr_sharpness] project setting.
 		</member>
+		<member name="frame_generation" type="bool" setter="set_frame_generation" getter="get_frame_generation" default="false">
+			If [code]true[/code], enables NVIDIA DLSS Frame Generation on this viewport. Requires [member scaling_3d_mode] to be [constant SCALING_3D_MODE_DLSS], and is ignored in the editor.
+			[b]Note:[/b] Only supported on Windows, on NVIDIA RTX 40 series hardware and newer, and only in builds compiled with NVIDIA Streamline support.
+		</member>
 		<member name="global_canvas_transform" type="Transform2D" setter="set_global_canvas_transform" getter="get_global_canvas_transform">
 			The global canvas transform of the viewport. The canvas transform is relative to this.
 		</member>
@@ -579,7 +583,11 @@
 			Use nearest-neighbor filtering for the viewport's 3D buffer. This looks crisper than [constant SCALING_3D_MODE_BILINEAR] and has no additional rendering cost. The amount of scaling can be set using [member scaling_3d_scale]. Values greater than [code]1.0[/code] are not supported and bilinear downsampling will be used instead. A value of [code]1.0[/code] disables scaling.
 			[b]Note:[/b] When using the [b]Nearest[/b] scaling mode, to avoid uneven pixel scaling, it's highly recommended to use a value equal to an integer divisor with a dividend of [code]1[/code]. For example, it's best to use a scale of [code]0.5[/code] (1/2), [code]0.3333[/code] (1/3), [code]0.25[/code] (1/4), [code]0.2[/code] (1/5), and so on.
 		</constant>
-		<constant name="SCALING_3D_MODE_MAX" value="6" enum="Scaling3DMode">
+		<constant name="SCALING_3D_MODE_DLSS" value="6" enum="Scaling3DMode">
+			Use NVIDIA DLSS Super Resolution for the viewport's 3D buffer. DLSS is a temporal upscaler: it reuses information from previous frames, so it produces a much sharper image than the spatial modes at the same render resolution, at the cost of some ghosting on fast-moving content. The amount of scaling can be set using [member scaling_3d_scale]; values greater than [code]1.0[/code] are not supported and bilinear downsampling will be used instead. [member fsr_sharpness] doubles as the DLSS sharpening amount, applied through NVIDIA Image Scaling.
+			[b]Note:[/b] Only supported on Windows, on the Forward+ renderer, on NVIDIA RTX hardware, and only in builds compiled with NVIDIA Streamline support. The Streamline runtime binaries must also ship next to the executable. Falls back to bilinear scaling otherwise.
+		</constant>
+		<constant name="SCALING_3D_MODE_MAX" value="7" enum="Scaling3DMode">
 			Represents the size of the [enum Scaling3DMode] enum.
 		</constant>
 		<constant name="MSAA_DISABLED" value="0" enum="MSAA">

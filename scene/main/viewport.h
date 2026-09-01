@@ -104,6 +104,7 @@ public:
 		SCALING_3D_MODE_METALFX_SPATIAL,
 		SCALING_3D_MODE_METALFX_TEMPORAL,
 		SCALING_3D_MODE_NEAREST,
+		SCALING_3D_MODE_DLSS,
 		SCALING_3D_MODE_MAX
 	};
 
@@ -322,6 +323,7 @@ private:
 
 	Scaling3DMode scaling_3d_mode = SCALING_3D_MODE_BILINEAR;
 	float scaling_3d_scale = 1.0;
+	bool frame_generation = false;
 	float fsr_sharpness = 0.2f;
 	float texture_mipmap_bias = 0.0f;
 	AnisotropicFiltering anisotropic_filtering_level = ANISOTROPY_4X;
@@ -605,6 +607,9 @@ public:
 	Scaling3DMode get_scaling_3d_mode() const;
 
 	void set_scaling_3d_scale(float p_scaling_3d_scale);
+
+	void set_frame_generation(bool p_frame_generation);
+	bool get_frame_generation() const;
 	float get_scaling_3d_scale() const;
 
 	void set_fsr_sharpness(float p_fsr_sharpness);

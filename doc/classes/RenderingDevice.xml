@@ -1443,6 +1443,12 @@
 			- Vulkan: [code]VkPipeline[/code].
 			- Metal: [code]MTLRenderPipelineState[/code].
 		</constant>
+		<constant name="DRIVER_RESOURCE_TEXTURE_DEVICE_MEMORY" value="13" enum="DriverResource">
+			- Vulkan: [code]VkDeviceMemory[/code] backing the texture.
+		</constant>
+		<constant name="DRIVER_RESOURCE_TEXTURE_USAGE_FLAGS" value="14" enum="DriverResource">
+			- Vulkan: [code]VkImageUsageFlags[/code] the texture was created with.
+		</constant>
 		<constant name="DRIVER_RESOURCE_VULKAN_DEVICE" value="0" enum="DriverResource" deprecated="Use [constant DRIVER_RESOURCE_LOGICAL_DEVICE] instead.">
 		</constant>
 		<constant name="DRIVER_RESOURCE_VULKAN_PHYSICAL_DEVICE" value="1" enum="DriverResource" deprecated="Use [constant DRIVER_RESOURCE_PHYSICAL_DEVICE] instead.">

@@ -84,6 +84,9 @@ private:
 	Size2i internal_size = Size2i(0, 0);
 	RSE::ViewportScaling3DMode scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_OFF;
 	float fsr_sharpness = 0.2f;
+	bool frame_generation = false;
+	// DLSS needs a few warm-up frames before its output can be consumed.
+	bool upscaler_ready = false;
 	float texture_mipmap_bias = 0.0f;
 	RSE::ViewportAnisotropicFiltering anisotropic_filtering_level = RSE::VIEWPORT_ANISOTROPY_4X;
 
@@ -243,6 +246,7 @@ public:
 	_FORCE_INLINE_ Size2i get_target_size() const { return target_size; }
 	_FORCE_INLINE_ RSE::ViewportScaling3DMode get_scaling_3d_mode() const { return scaling_3d_mode; }
 	_FORCE_INLINE_ float get_fsr_sharpness() const { return fsr_sharpness; }
+	_FORCE_INLINE_ bool get_frame_generation() const { return frame_generation; }
 	_FORCE_INLINE_ RSE::ViewportMSAA get_msaa_3d() const { return msaa_3d; }
 	_FORCE_INLINE_ RD::TextureSamples get_texture_samples() const { return texture_samples; }
 	_FORCE_INLINE_ RSE::ViewportScreenSpaceAA get_screen_space_aa() const { return screen_space_aa; }
@@ -308,6 +312,9 @@ public:
 
 	// Upscaled.
 	void ensure_upscaled();
+
+	_FORCE_INLINE_ bool get_upscaler_ready() const { return upscaler_ready; }
+	_FORCE_INLINE_ void set_upscaler_ready(bool p_ready) { upscaler_ready = p_ready; }
 
 	_FORCE_INLINE_ bool has_upscaled_texture() const {
 		return has_texture(RB_SCOPE_BUFFERS, RB_TEX_COLOR_UPSCALED);

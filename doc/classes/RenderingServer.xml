@@ -4325,6 +4325,14 @@
 				Sets the viewport's environment mode which allows enabling or disabling rendering of 3D environment over 2D canvas. When disabled, 2D will not be affected by the environment. When enabled, 2D will be affected by the environment if the environment background mode is [constant ENV_BG_CANVAS]. The default behavior is to inherit the setting from the viewport's parent. If the topmost parent is also set to [constant VIEWPORT_ENVIRONMENT_INHERIT], then the behavior will be the same as if it was set to [constant VIEWPORT_ENVIRONMENT_ENABLED].
 			</description>
 		</method>
+		<method name="viewport_set_frame_generation">
+			<return type="void" />
+			<param index="0" name="viewport" type="RID" />
+			<param index="1" name="frame_generation" type="bool" />
+			<description>
+				If [code]true[/code], enables NVIDIA DLSS Frame Generation on the viewport. Requires the viewport's 3D scaling mode to be [constant VIEWPORT_SCALING_3D_MODE_DLSS], and is ignored in the editor.
+			</description>
+		</method>
 		<method name="viewport_set_fsr_sharpness">
 			<return type="void" />
 			<param index="0" name="viewport" type="RID" />
@@ -5429,7 +5437,11 @@
 			Use nearest-neighbor filtering for the viewport's 3D buffer. This looks crisper than [constant VIEWPORT_SCALING_3D_MODE_BILINEAR] and has no additional rendering cost. The amount of scaling can be set using [member Viewport.scaling_3d_scale]. Values greater than [code]1.0[/code] are not supported and bilinear downsampling will be used instead. A value of [code]1.0[/code] disables scaling.
 			[b]Note:[/b] When using the [b]Nearest[/b] scaling mode, to avoid uneven pixel scaling, it's highly recommended to use a value equal to an integer divisor with a dividend of [code]1[/code]. For example, it's best to use a scale of [code]0.5[/code] (1/2), [code]0.3333[/code] (1/3), [code]0.25[/code] (1/4), [code]0.2[/code] (1/5), and so on.
 		</constant>
-		<constant name="VIEWPORT_SCALING_3D_MODE_MAX" value="6" enum="ViewportScaling3DMode">
+		<constant name="VIEWPORT_SCALING_3D_MODE_DLSS" value="6" enum="ViewportScaling3DMode">
+			Use NVIDIA DLSS Super Resolution for the viewport's 3D buffer. DLSS is a temporal upscaler: it reuses information from previous frames, so it produces a much sharper image than the spatial modes at the same render resolution, at the cost of some ghosting on fast-moving content. The amount of scaling can be set using [member Viewport.scaling_3d_scale]; values greater than [code]1.0[/code] are not supported and bilinear downsampling will be used instead.
+			[b]Note:[/b] Only supported on Windows, on the Forward+ renderer, on NVIDIA RTX hardware, and only in builds compiled with NVIDIA Streamline support. Falls back to bilinear scaling otherwise.
+		</constant>
+		<constant name="VIEWPORT_SCALING_3D_MODE_MAX" value="7" enum="ViewportScaling3DMode">
 			Represents the size of the [enum ViewportScaling3DMode] enum.
 		</constant>
 		<constant name="VIEWPORT_UPDATE_DISABLED" value="0" enum="ViewportUpdateMode">

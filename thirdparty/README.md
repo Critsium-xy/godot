@@ -1063,6 +1063,22 @@ Patches:
 - `0002-spirv-headers.patch` ([GH-111452](https://github.com/godotengine/godot/pull/111452))
 
 
+## streamline
+
+- Upstream: https://github.com/NVIDIA-RTX/Streamline
+- Version: 2.10.0 (2025)
+- License: MIT
+
+Files extracted from upstream source:
+
+- `include/` folder
+- `LICENSE.txt`
+
+The Streamline runtime binaries (`sl.interposer.dll`, `sl.common.dll`, `sl.dlss.dll`,
+`nvngx_dlss.dll`, ...) are not vendored. They are loaded at runtime from the
+directory of the executable and must be shipped alongside it.
+
+
 ## swappy-frame-pacing
 
 - Upstream: https://android.googlesource.com/platform/frameworks/opt/gamesdk/ via https://github.com/godotengine/godot-swappy

@@ -96,6 +96,12 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_fsr2(Rende
 	}
 }
 
+void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_dlss(RendererRD::DLSSEffect *p_effect) {
+	if (dlss_context == nullptr) {
+		dlss_context = p_effect->create_context(render_buffers->get_internal_size(), render_buffers->get_target_size());
+	}
+}
+
 #ifdef METAL_MFXTEMPORAL_ENABLED
 bool RenderForwardClustered::RenderBufferDataForwardClustered::ensure_mfx_temporal(RendererRD::MFXTemporalEffect *p_effect) {
 	if (mfx_temporal_context == nullptr) {
@@ -134,6 +140,11 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::free_data() {
 	if (fsr2_context) {
 		memdelete(fsr2_context);
 		fsr2_context = nullptr;
+	}
+
+	if (dlss_context) {
+		memdelete(dlss_context);
+		dlss_context = nullptr;
 	}
 
 #ifdef METAL_MFXTEMPORAL_ENABLED
@@ -1864,11 +1875,15 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		SCALE_NONE,
 		SCALE_FSR2,
 		SCALE_MFX,
+		SCALE_DLSS,
 	} scale_type = SCALE_NONE;
 
 	switch (rb->get_scaling_3d_mode()) {
 		case RSE::VIEWPORT_SCALING_3D_MODE_FSR2:
 			scale_type = SCALE_FSR2;
+			break;
+		case RSE::VIEWPORT_SCALING_3D_MODE_DLSS:
+			scale_type = SCALE_DLSS;
 			break;
 		case RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL:
 #ifdef METAL_MFXTEMPORAL_ENABLED
@@ -2543,6 +2558,18 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		_process_compositor_effects(RSE::COMPOSITOR_EFFECT_CALLBACK_TYPE_POST_TRANSPARENT, p_render_data);
 	}
 
+	if (rb_data.is_valid() && scale_type == SCALE_DLSS) {
+		// DLSS cannot service every configuration: each quality mode only accepts render
+		// resolutions inside its own range, and the adapter or the installed Streamline
+		// plugins may not support it at all. The viewport has already had temporal jitter
+		// applied by this point, so silently doing nothing would leave that jitter
+		// unresolved and make the whole image shake. Fall back to FSR2 instead.
+		rb_data->ensure_dlss(dlss_effect);
+		if (!dlss_effect->is_context_valid(rb_data->get_dlss_context())) {
+			scale_type = SCALE_FSR2;
+		}
+	}
+
 	if (rb_data.is_valid() && (using_upscaling || using_taa)) {
 		if (scale_type == SCALE_FSR2) {
 			rb_data->ensure_fsr2(fsr2_effect);
@@ -2586,7 +2613,70 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 				const Transform3D &cur_transform = p_render_data->scene_data->cam_transform;
 				params.reprojection = (correction * prev_proj) * prev_transform.affine_inverse() * cur_transform * (correction * cur_proj).inverse();
 
+				rb->set_upscaler_ready(true);
 				fsr2_effect->upscale(params);
+			}
+
+			RD::get_singleton()->draw_command_end_label();
+		} else if (scale_type == SCALE_DLSS) {
+			rb_data->ensure_dlss(dlss_effect);
+
+			RID exposure;
+			if (RSG::camera_attributes->camera_attributes_uses_auto_exposure(p_render_data->camera_attributes)) {
+				exposure = luminance->get_current_luminance_buffer(rb);
+			}
+
+			RD::get_singleton()->draw_command_begin_label("DLSS");
+			RENDER_TIMESTAMP("DLSS");
+
+			for (uint32_t v = 0; v < rb->get_view_count(); v++) {
+				real_t fov = p_render_data->scene_data->cam_projection.get_fov();
+				real_t aspect = p_render_data->scene_data->cam_projection.get_aspect();
+				// get_fov() is the horizontal FOV, so the aspect has to be inverted to get the vertical one.
+				real_t fovy = p_render_data->scene_data->cam_projection.get_fovy(fov, 1.0 / aspect);
+				Vector2 jitter = p_render_data->scene_data->taa_jitter * Vector2(rb->get_internal_size()) * 0.5f;
+				RendererRD::DLSSContext::Parameters params;
+				params.context = rb_data->get_dlss_context();
+				params.internal_size = rb->get_internal_size();
+				// Unlike FSR2, DLSS takes the sharpening amount directly (0 disables the extra NIS pass).
+				params.sharpness = CLAMP(rb->get_fsr_sharpness() / 2.0f, 0.0f, 1.0f);
+				params.color = rb->get_internal_texture(v);
+				params.depth = rb->get_depth_texture(v);
+				params.velocity = rb->get_velocity_buffer(false, v);
+				params.reactive = rb->get_internal_texture_reactive(v);
+				params.exposure = exposure;
+				params.output = rb->get_upscaled_texture(v);
+				params.dlss_g = rb->get_frame_generation();
+				params.preset = '?'; // Resolved from the project settings by the Streamline layer.
+				params.z_near = p_render_data->scene_data->z_near;
+				params.z_far = p_render_data->scene_data->z_far;
+				params.fovy = fovy;
+				params.jitter = jitter;
+				params.delta_time = float(time_step);
+				params.reset_accumulation = false; // FIXME: The engine does not provide a way to reset the accumulation.
+
+				Projection correction;
+				correction.set_depth_correction(true, true, false);
+
+				const Projection &prev_proj = p_render_data->scene_data->prev_cam_projection;
+				const Projection &cur_proj = p_render_data->scene_data->cam_projection;
+				const Transform3D &prev_transform = p_render_data->scene_data->prev_cam_transform;
+				const Transform3D &cur_transform = p_render_data->scene_data->cam_transform;
+				params.reprojection = (correction * prev_proj) * prev_transform.affine_inverse() * cur_transform * (correction * cur_proj).inverse();
+
+				// The matrices DLSS consumes have to describe the clip space the scene was
+				// actually rendered in, otherwise they disagree with the depth buffer and with
+				// the depthInverted flag, which shows up as unstable disocclusion handling.
+				Projection render_correction;
+				render_correction.set_depth_correction(p_render_data->scene_data->flip_y);
+				const Projection render_cur_proj = render_correction * cur_proj;
+				const Projection render_prev_proj = render_correction * prev_proj;
+				params.cam_projection = render_cur_proj;
+				params.clip_to_prev_clip = render_prev_proj * prev_transform.affine_inverse() * cur_transform * render_cur_proj.inverse();
+				params.cam_transform = cur_transform;
+
+				rb->set_upscaler_ready(dlss_effect->is_ready(rb_data->get_dlss_context()));
+				dlss_effect->upscale(params);
 			}
 
 			RD::get_singleton()->draw_command_end_label();
@@ -2614,6 +2704,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 				params.jitter_offset = jitter;
 				params.reset = reset;
 
+				rb->set_upscaler_ready(true);
 				mfx_temporal_effect->process(rb_data->get_mfx_temporal_context(), params);
 			}
 
@@ -5375,6 +5466,7 @@ RenderForwardClustered::RenderForwardClustered() {
 
 	taa = memnew(RendererRD::TAA);
 	fsr2_effect = memnew(RendererRD::FSR2Effect);
+	dlss_effect = memnew(RendererRD::DLSSEffect);
 	ss_effects = memnew(RendererRD::SSEffects);
 #ifdef METAL_MFXTEMPORAL_ENABLED
 	motion_vectors_store = memnew(RendererRD::MotionVectorsStore);
@@ -5396,6 +5488,11 @@ RenderForwardClustered::~RenderForwardClustered() {
 	if (fsr2_effect) {
 		memdelete(fsr2_effect);
 		fsr2_effect = nullptr;
+	}
+
+	if (dlss_effect) {
+		memdelete(dlss_effect);
+		dlss_effect = nullptr;
 	}
 
 #ifdef METAL_MFXTEMPORAL_ENABLED

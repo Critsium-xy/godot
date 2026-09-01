@@ -35,6 +35,10 @@
 #include "core/string/ustring.h"
 #include "core/templates/local_vector.h"
 
+#ifdef STREAMLINE_ENABLED
+#include "drivers/streamline/streamline.h"
+#endif
+
 GODOT_GCC_WARNING_PUSH_AND_IGNORE("-Wnon-virtual-dtor")
 GODOT_CLANG_WARNING_PUSH_AND_IGNORE("-Wnon-virtual-dtor")
 #include <dxcapi.h>
@@ -98,6 +102,14 @@ Error RenderingContextDriverD3D12::_init_device_factory() {
 	lib_dxgi = LoadLibraryW(L"DXGI.dll");
 	ERR_FAIL_NULL_V(lib_dxgi, ERR_CANT_CREATE);
 
+#ifdef STREAMLINE_ENABLED
+	// Streamline does not support device factories, so when its interposer is present
+	// fall back to plain D3D12CreateDevice, which is routed through Streamline below.
+	if (Streamline::get_singleton() && Streamline::get_singleton()->get_internal_parameter(STREAMLINE_INTERNAL_PARAMETER_FUNC_D3D12GetInterface)) {
+		return OK;
+	}
+#endif
+
 #ifdef DCOMP_ENABLED
 	lib_dcomp = LoadLibraryW(L"Dcomp.dll");
 	ERR_FAIL_NULL_V(lib_dcomp, ERR_CANT_CREATE);
@@ -145,6 +157,12 @@ Error RenderingContextDriverD3D12::_create_dxgi_factory() {
 	typedef HRESULT(WINAPI * PFN_DXGI_CREATE_DXGI_FACTORY2)(UINT, REFIID, void **);
 	PFN_DXGI_CREATE_DXGI_FACTORY2 dxgi_CreateDXGIFactory2 = (PFN_DXGI_CREATE_DXGI_FACTORY2)(void *)GetProcAddress(lib_dxgi, "CreateDXGIFactory2");
 	ERR_FAIL_NULL_V(dxgi_CreateDXGIFactory2, ERR_CANT_CREATE);
+
+#ifdef STREAMLINE_ENABLED
+	if (Streamline::get_singleton() && Streamline::get_singleton()->get_internal_parameter(STREAMLINE_INTERNAL_PARAMETER_FUNC_CreateDXGIFactory2)) {
+		dxgi_CreateDXGIFactory2 = (PFN_DXGI_CREATE_DXGI_FACTORY2)Streamline::get_singleton()->get_internal_parameter(STREAMLINE_INTERNAL_PARAMETER_FUNC_CreateDXGIFactory2);
+	}
+#endif
 
 	HRESULT res = dxgi_CreateDXGIFactory2(dxgi_factory_flags, IID_PPV_ARGS(&dxgi_factory));
 	ERR_FAIL_COND_V(!SUCCEEDED(res), ERR_CANT_CREATE);

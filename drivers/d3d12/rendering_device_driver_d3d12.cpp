@@ -36,6 +36,10 @@
 #include "drivers/d3d12/d3d12_hooks.h"
 #include "drivers/d3d12/rendering_context_driver_d3d12.h"
 
+#ifdef STREAMLINE_ENABLED
+#include "drivers/streamline/streamline.h"
+#endif
+
 #include <drivers/d3d12/godot_d3d12ma.h>
 #include <drivers/d3d12/godot_nir.h>
 #include <dxgi1_6.h>
@@ -2650,6 +2654,12 @@ Error RenderingDeviceDriverD3D12::command_queue_execute_and_present(CommandQueue
 		}
 	}
 
+#ifdef STREAMLINE_ENABLED
+	if (Streamline::get_singleton()) {
+		Streamline::get_singleton()->emit_marker(STREAMLINE_MARKER_BEGIN_PRESENT);
+	}
+#endif
+
 	HRESULT res;
 	bool any_present_failed = false;
 	for (uint32_t i = 0; i < p_swap_chains.size(); i++) {
@@ -2660,6 +2670,12 @@ Error RenderingDeviceDriverD3D12::command_queue_execute_and_present(CommandQueue
 			any_present_failed = true;
 		}
 	}
+
+#ifdef STREAMLINE_ENABLED
+	if (Streamline::get_singleton()) {
+		Streamline::get_singleton()->emit_marker(STREAMLINE_MARKER_END_PRESENT);
+	}
+#endif
 
 	return any_present_failed ? FAILED : OK;
 }
@@ -2887,6 +2903,13 @@ RDD::SwapChainID RenderingDeviceDriverD3D12::swap_chain_create(RenderingContextD
 }
 
 Error RenderingDeviceDriverD3D12::swap_chain_resize(CommandQueueID p_cmd_queue, SwapChainID p_swap_chain, uint32_t p_desired_framebuffer_count) {
+#ifdef STREAMLINE_ENABLED
+	// DLSS Frame Generation owns the swap chain; it has to be torn down before it is recreated.
+	if (Streamline::get_singleton()) {
+		Streamline::get_singleton()->emit_marker(STREAMLINE_MARKER_MODIFY_SWAPCHAIN);
+	}
+#endif
+
 	DEV_ASSERT(p_cmd_queue.id != 0);
 	DEV_ASSERT(p_swap_chain.id != 0);
 
@@ -5865,6 +5888,11 @@ void RenderingDeviceDriverD3D12::command_end_label(CommandBufferID p_cmd_buffer)
 #endif
 }
 
+void *RenderingDeviceDriverD3D12::command_buffer_get_native_handle(CommandBufferID p_cmd_buffer) {
+	const CommandBufferInfo *cmd_buf_info = (const CommandBufferInfo *)p_cmd_buffer.id;
+	return cmd_buf_info->cmd_list.Get();
+}
+
 void RenderingDeviceDriverD3D12::command_insert_breadcrumb(CommandBufferID p_cmd_buffer, uint32_t p_data) {
 	// TODO: Implement via DRED.
 }
@@ -6236,6 +6264,13 @@ Error RenderingDeviceDriverD3D12::_initialize_device() {
 	} else {
 		PFN_D3D12_CREATE_DEVICE d3d_D3D12CreateDevice = (PFN_D3D12_CREATE_DEVICE)(void *)GetProcAddress(context_driver->lib_d3d12, "D3D12CreateDevice");
 		ERR_FAIL_NULL_V(d3d_D3D12CreateDevice, ERR_CANT_CREATE);
+
+#ifdef STREAMLINE_ENABLED
+		// Creating the device through Streamline is what lets it interpose D3D12.
+		if (Streamline::get_singleton() && Streamline::get_singleton()->get_internal_parameter(STREAMLINE_INTERNAL_PARAMETER_FUNC_D3D12CreateDevice)) {
+			d3d_D3D12CreateDevice = (PFN_D3D12_CREATE_DEVICE)Streamline::get_singleton()->get_internal_parameter(STREAMLINE_INTERNAL_PARAMETER_FUNC_D3D12CreateDevice);
+		}
+#endif
 
 		res = d3d_D3D12CreateDevice(adapter.Get(), requested_feature_level, IID_PPV_ARGS(device.GetAddressOf()));
 	}
@@ -6644,12 +6679,26 @@ Error RenderingDeviceDriverD3D12::initialize(uint32_t p_device_index, uint32_t p
 	HRESULT res = adapter->GetDesc(&adapter_desc);
 	ERR_FAIL_COND_V(!SUCCEEDED(res), ERR_CANT_CREATE);
 
+#ifdef STREAMLINE_ENABLED
+	// Streamline enumerates DLSS support from the adapter LUID; without this every
+	// capability query reports false and DLSS silently never runs.
+	if (Streamline::get_singleton()) {
+		Streamline::get_singleton()->set_internal_parameter("d3d12_adapter_luid", (void *)&adapter_desc.AdapterLuid);
+	}
+#endif
+
 	// Set the pipeline cache ID based on the adapter information.
 	pipeline_cache_id = String::hex_encode_buffer((uint8_t *)&adapter_desc.AdapterLuid, sizeof(LUID));
 	pipeline_cache_id += "-driver-" + itos(adapter_desc.Revision);
 
 	Error err = _initialize_device();
 	ERR_FAIL_COND_V(err != OK, ERR_CANT_CREATE);
+
+#ifdef STREAMLINE_ENABLED
+	if (Streamline::get_singleton()) {
+		Streamline::get_singleton()->set_internal_parameter("d3d12_device", (void *)device.Get());
+	}
+#endif
 
 	err = _check_capabilities();
 	ERR_FAIL_COND_V(err != OK, ERR_CANT_CREATE);
@@ -6665,6 +6714,14 @@ Error RenderingDeviceDriverD3D12::initialize(uint32_t p_device_index, uint32_t p
 
 	err = _initialize_command_signatures();
 	ERR_FAIL_COND_V(err != OK, ERR_CANT_CREATE);
+
+#ifdef STREAMLINE_ENABLED
+	// Resolves the per-feature entry points (DLSS, Reflex, NIS). Without this every
+	// Streamline feature function stays null and DLSS silently never runs.
+	if (Streamline::get_singleton()) {
+		Streamline::get_singleton()->emit_marker(STREAMLINE_MARKER_AFTER_DEVICE_CREATION);
+	}
+#endif
 
 	return OK;
 }

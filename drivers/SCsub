@@ -65,6 +65,9 @@ if env["sdl"] and env["platform"] in ["linuxbsd", "macos", "windows", "ios", "vi
     # TODO: Evaluate support for Android and Web.
     SConscript("sdl/SCsub")
 
+# NVIDIA Streamline (DLSS, Reflex)
+SConscript("streamline/SCsub")
+
 # Core dependencies
 SConscript("png/SCsub")
 

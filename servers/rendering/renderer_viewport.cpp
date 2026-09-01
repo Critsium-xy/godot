@@ -45,6 +45,10 @@
 #include "servers/rendering/rendering_server_globals.h"
 #include "servers/rendering/storage/texture_storage.h"
 
+#ifdef STREAMLINE_ENABLED
+#include "drivers/streamline/streamline_context.h"
+#endif
+
 #ifndef XR_DISABLED
 #include "servers/xr/xr_interface.h"
 #include "servers/xr/xr_server.h"
@@ -141,7 +145,7 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 			const float EPSILON = 0.0001;
 			float scaling_3d_scale = p_viewport->scaling_3d_scale;
 			RSE::ViewportScaling3DMode scaling_3d_mode = p_viewport->scaling_3d_mode;
-			bool upscaler_available = p_viewport->fsr_enabled;
+			bool upscaler_available = p_viewport->fsr_enabled || p_viewport->dlss_enabled;
 			RSE::ViewportScaling3DType scaling_type = RSE::scaling_3d_mode_type(scaling_3d_mode);
 
 			if ((!upscaler_available || (scaling_type == RSE::VIEWPORT_SCALING_3D_TYPE_SPATIAL)) && scaling_3d_scale >= (1.0 - EPSILON) && scaling_3d_scale <= (1.0 + EPSILON)) {
@@ -202,17 +206,17 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 			bool use_taa = p_viewport->use_taa;
 
 			if (scaling_3d_is_not_bilinear && scaling_3d_scale >= (1.0 + EPSILON)) {
-				// FSR, MetalFX, and nearest-neighbor scaling are not designed for downsampling.
+				// FSR, MetalFX, DLSS, and nearest-neighbor scaling are not designed for downsampling.
 				// Fall back to bilinear scaling.
-				WARN_PRINT_ONCE("FSR, MetalFX, and nearest-neighbor 3D resolution scaling are not designed for downsampling. Falling back to bilinear 3D resolution scaling.");
+				WARN_PRINT_ONCE("FSR, MetalFX, DLSS, and nearest-neighbor 3D resolution scaling are not designed for downsampling. Falling back to bilinear 3D resolution scaling.");
 				scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_BILINEAR;
 				scaling_type = RSE::scaling_3d_mode_type(scaling_3d_mode);
 			}
 
 			if (scaling_3d_is_not_bilinear && scaling_3d_mode != RSE::VIEWPORT_SCALING_3D_MODE_NEAREST && !upscaler_available) {
-				// FSR is not actually available.
+				// The requested upscaler is not actually available.
 				// Fall back to bilinear scaling.
-				WARN_PRINT_ONCE("FSR 3D resolution scaling is not available. Falling back to bilinear 3D resolution scaling.");
+				WARN_PRINT_ONCE("3D resolution upscaling is not available. Falling back to bilinear 3D resolution scaling.");
 				scaling_3d_mode = RSE::VIEWPORT_SCALING_3D_MODE_BILINEAR;
 				scaling_type = RSE::scaling_3d_mode_type(scaling_3d_mode);
 			}
@@ -220,7 +224,7 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 			if (use_taa && scaling_type == RSE::VIEWPORT_SCALING_3D_TYPE_TEMPORAL) {
 				// Temporal upscalers can't be used with TAA.
 				// Turn it off and prefer using the temporal upscaler.
-				WARN_PRINT_ONCE("FSR 2 or MetalFX Temporal is not compatible with TAA. Disabling TAA internally.");
+				WARN_PRINT_ONCE("Temporal upscalers (FSR 2, MetalFX Temporal, DLSS) are not compatible with TAA. Disabling TAA internally.");
 				use_taa = false;
 			}
 
@@ -243,10 +247,12 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 				case RSE::VIEWPORT_SCALING_3D_MODE_METALFX_TEMPORAL:
 				case RSE::VIEWPORT_SCALING_3D_MODE_FSR:
 				case RSE::VIEWPORT_SCALING_3D_MODE_FSR2:
+				case RSE::VIEWPORT_SCALING_3D_MODE_DLSS:
 					target_width = p_viewport->size.width;
 					target_height = p_viewport->size.height;
-					render_width = MAX(target_width * scaling_3d_scale, 1.0); // target_width / (target_width * scaling)
-					render_height = MAX(target_height * scaling_3d_scale, 1.0);
+					// Round up: DLSS rejects a render resolution below the minimum of its chosen quality mode.
+					render_width = MAX(Math::ceil((float)target_width * scaling_3d_scale), 1.0); // target_width / (target_width * scaling)
+					render_height = MAX(Math::ceil((float)target_height * scaling_3d_scale), 1.0);
 					break;
 				case RSE::VIEWPORT_SCALING_3D_MODE_OFF:
 					target_width = p_viewport->size.width;
@@ -295,6 +301,7 @@ void RendererViewport::_configure_3d_render_buffers(Viewport *p_viewport) {
 			rb_config.set_texture_mipmap_bias(texture_mipmap_bias);
 			rb_config.set_anisotropic_filtering_level(p_viewport->anisotropic_filtering_level);
 			rb_config.set_use_taa(use_taa);
+			rb_config.set_use_frame_generation(p_viewport->frame_generation);
 			rb_config.set_use_debanding(p_viewport->use_debanding);
 
 			p_viewport->render_buffers->configure(&rb_config);
@@ -997,6 +1004,7 @@ void RendererViewport::viewport_initialize(RID p_rid) {
 	viewport->viewport_render_direct_to_screen = false;
 
 	viewport->fsr_enabled = !RSG::rasterizer->is_low_end() && !viewport->disable_3d;
+	viewport->dlss_enabled = !RSG::rasterizer->is_low_end() && !viewport->disable_3d;
 }
 
 #ifndef XR_DISABLED
@@ -1036,10 +1044,23 @@ void RendererViewport::viewport_set_scaling_3d_mode(RID p_viewport, RSE::Viewpor
 			WARN_PRINT_ONCE_ED("MetalFX Temporal 3D scaling is only available when using the Forward+ renderer.");
 			return;
 		}
+		if (p_mode == RSE::VIEWPORT_SCALING_3D_MODE_DLSS) {
+			WARN_PRINT_ONCE_ED("DLSS 3D scaling is only available when using the Forward+ renderer.");
+			return;
+		}
 	}
 	if (rendering_method == "gl_compatibility" && p_mode == RSE::VIEWPORT_SCALING_3D_MODE_METALFX_SPATIAL) {
 		WARN_PRINT_ONCE_ED("MetalFX Spatial 3D scaling is only available when using the Forward+ or Mobile renderer.");
 		return;
+	}
+	if (p_mode == RSE::VIEWPORT_SCALING_3D_MODE_DLSS) {
+#ifndef STREAMLINE_ENABLED
+		ERR_PRINT_ONCE_ED("DLSS is not available because NVIDIA Streamline support was not compiled into the engine.");
+#else
+		if (StreamlineContext::get().slInit == nullptr) {
+			ERR_PRINT_ONCE_ED("DLSS is not available because NVIDIA Streamline failed to initialize (sl.interposer.dll was not found or failed to load). Download the Streamline SDK from https://github.com/NVIDIA-RTX/Streamline, place its binaries next to the executable, and restart.");
+		}
+#endif
 	}
 
 	if (viewport->scaling_3d_mode == p_mode) {
@@ -1054,6 +1075,18 @@ void RendererViewport::viewport_set_scaling_3d_mode(RID p_viewport, RSE::Viewpor
 		num_viewports_with_motion_vectors += motion_vectors_after ? 1 : -1;
 	}
 
+	_configure_3d_render_buffers(viewport);
+}
+
+void RendererViewport::viewport_set_frame_generation(RID p_viewport, bool p_frame_generation) {
+	Viewport *viewport = viewport_owner.get_or_null(p_viewport);
+	ERR_FAIL_NULL(viewport);
+
+	if (viewport->frame_generation == p_frame_generation) {
+		return;
+	}
+
+	viewport->frame_generation = p_frame_generation;
 	_configure_3d_render_buffers(viewport);
 }
 
