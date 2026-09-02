@@ -2823,6 +2823,18 @@ void RenderingDeviceDriverD3D12::command_buffer_end(CommandBufferID p_cmd_buffer
 	cmd_buf_info->descriptor_heaps_set = false;
 }
 
+void RenderingDeviceDriverD3D12::command_buffer_forget_cached_state(CommandBufferID p_cmd_buffer) {
+	CommandBufferInfo *cmd_buf_info = (CommandBufferInfo *)p_cmd_buffer.id;
+	cmd_buf_info->graphics_pso = nullptr;
+	cmd_buf_info->graphics_root_signature_crc = 0;
+	cmd_buf_info->compute_pso = nullptr;
+	cmd_buf_info->compute_root_signature_crc = 0;
+	cmd_buf_info->nir_graphics_runtime_data_root_param_idx = UINT32_MAX;
+	cmd_buf_info->nir_compute_runtime_data_root_param_idx = UINT32_MAX;
+	cmd_buf_info->pending_dyn_params = true;
+	cmd_buf_info->descriptor_heaps_set = false;
+}
+
 void RenderingDeviceDriverD3D12::command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) {
 	const CommandBufferInfo *cmd_buf_info = (const CommandBufferInfo *)p_cmd_buffer.id;
 	for (uint32_t i = 0; i < p_secondary_cmd_buffers.size(); i++) {

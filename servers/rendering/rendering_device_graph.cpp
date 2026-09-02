@@ -1142,6 +1142,7 @@ void RenderingDeviceGraph::_run_render_commands(int32_t p_level, const RecordedC
 			case RecordedCommand::TYPE_DRIVER_CALLBACK: {
 				const RecordedDriverCallbackCommand *driver_callback_command = reinterpret_cast<const RecordedDriverCallbackCommand *>(command);
 				driver_callback_command->callback(driver, r_command_buffer, driver_callback_command->userdata);
+				driver->command_buffer_forget_cached_state(r_command_buffer);
 			} break;
 			case RecordedCommand::TYPE_RAYTRACING_LIST: {
 				const RecordedRaytracingListCommand *raytracing_list_command = reinterpret_cast<const RecordedRaytracingListCommand *>(command);

@@ -459,6 +459,10 @@ public:
 	virtual bool command_buffer_begin_secondary(CommandBufferID p_cmd_buffer, RenderPassID p_render_pass, uint32_t p_subpass, FramebufferID p_framebuffer) = 0;
 	virtual void command_buffer_end(CommandBufferID p_cmd_buffer) = 0;
 	virtual void command_buffer_execute_secondary(CommandBufferID p_cmd_buffer, VectorView<CommandBufferID> p_secondary_cmd_buffers) = 0;
+	// Called after native code outside the driver has recorded commands into the command buffer.
+	// Such code is free to rebind pipelines, root signatures or descriptor heaps, so a driver that
+	// caches what it believes is currently bound has to forget it and set it again next time.
+	virtual void command_buffer_forget_cached_state(CommandBufferID p_cmd_buffer) {}
 
 	/********************/
 	/**** SWAP CHAIN ****/
