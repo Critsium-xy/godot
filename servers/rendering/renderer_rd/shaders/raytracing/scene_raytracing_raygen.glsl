@@ -426,11 +426,14 @@ void main() {
 	float roughness = saturate(orm.g * mat.roughness);
 	float metalness = saturate(orm.b * mat.metallic);
 
-	vec3 emissive = vec3(0.0);
+	// The emission colour and strength stand on their own; an emission texture, when
+	// present, modulates them. Gating the whole term on the texture flag would drop
+	// emission entirely for any material that has it enabled but uses no texture.
+	vec3 emissive = mat.emission_color * mat.emission_strength;
 	if ((mat.flags & 2u) != 0u) {
-		emissive = sample_material_texture(mat.emission_texture_idx, uv, mat.flags).rgb * mat.emission_color * mat.emission_strength;
-		emissive *= scene_data_block.data.emissive_exposure_normalization;
+		emissive *= sample_material_texture(mat.emission_texture_idx, uv, mat.flags).rgb;
 	}
+	emissive *= scene_data_block.data.emissive_exposure_normalization;
 
 	// Build MaterialResult.
 	MaterialResult m;
