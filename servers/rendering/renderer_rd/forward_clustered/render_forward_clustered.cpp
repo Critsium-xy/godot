@@ -3935,22 +3935,9 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		u.append_id(texture);
 		uniforms.push_back(u);
 	}
-#ifdef MODULE_TEXTURE_STREAMING_ENABLED
 	{
 		RD::Uniform u;
 		u.binding = 37;
-		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
-		RID instance_buffer = TextureStreaming::get_singleton()->feedback_buffer_get_uniform_rid();
-		if (instance_buffer.is_null()) {
-			instance_buffer = scene_shader.default_material_feedback_buffer;
-		}
-		u.append_id(instance_buffer);
-		uniforms.push_back(u);
-	}
-#endif // MODULE_TEXTURE_STREAMING_ENABLED
-	{
-		RD::Uniform u;
-		u.binding = 38;
 		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 
 		RID sscs;
@@ -3964,6 +3951,19 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		u.append_id(texture);
 		uniforms.push_back(u);
 	}
+#ifdef MODULE_TEXTURE_STREAMING_ENABLED
+	{
+		RD::Uniform u;
+		u.binding = 38;
+		u.uniform_type = RD::UNIFORM_TYPE_STORAGE_BUFFER;
+		RID instance_buffer = TextureStreaming::get_singleton()->feedback_buffer_get_uniform_rid();
+		if (instance_buffer.is_null()) {
+			instance_buffer = scene_shader.default_material_feedback_buffer;
+		}
+		u.append_id(instance_buffer);
+		uniforms.push_back(u);
+	}
+#endif // MODULE_TEXTURE_STREAMING_ENABLED
 
 	return UniformSetCacheRD::get_singleton()->get_cache_vec(scene_shader.get_default_shader_rd(is_multiview), RENDER_PASS_UNIFORM_SET, uniforms);
 }

@@ -108,6 +108,7 @@ struct RenderDataGLES3 {
 	Transform3D inv_cam_transform;
 	Projection cam_projection;
 	bool cam_orthogonal = false;
+	bool cam_asymmetrical = false;
 	uint32_t camera_visible_layers = 0xFFFFFFFF;
 
 	// For billboards to cast correct shadows.
@@ -866,6 +867,7 @@ protected:
 	mutable RID_Owner<Sky, true> sky_owner;
 
 	GLES3::SkyMaterialData *_get_sky_material_data(RID p_env);
+	GLES3::SkyMaterialData *_get_flat_color_sky_material_data(RID p_env);
 	void _setup_sky(const RenderDataGLES3 *p_render_data, const PagedArray<RID> &p_lights, const Projection &p_projection, const Transform3D &p_transform, const Size2i p_screen_size);
 	void _invalidate_sky(Sky *p_sky);
 	void _update_dirty_skys();

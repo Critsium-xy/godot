@@ -722,6 +722,7 @@ public:
 	FUNC4(camera_set_perspective, RID, float, float, float)
 	FUNC4(camera_set_orthogonal, RID, float, float, float)
 	FUNC5(camera_set_frustum, RID, float, Vector2, float, float)
+	FUNC3(camera_set_xr_projections, RID, TypedArray<Projection>, TypedArray<Transform3D>)
 	FUNC2(camera_set_transform, RID, const Transform3D &)
 	FUNC2(camera_set_cull_mask, RID, uint32_t)
 	FUNC2(camera_set_environment, RID, RID)
@@ -1186,7 +1187,9 @@ public:
 #endif
 
 	virtual uint64_t get_rendering_info(RSE::RenderingInfo p_info) override;
+#ifdef RD_ENABLED
 	virtual RenderingDeviceEnums::DeviceType get_video_adapter_type() const override;
+#endif
 
 	virtual void set_frame_profiling_enabled(bool p_enable) override;
 	virtual Vector<RenderingServerTypes::FrameProfileArea> get_frame_profile() override;

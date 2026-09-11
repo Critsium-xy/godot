@@ -198,6 +198,15 @@
 				If [code]true[/code], preserves the horizontal aspect ratio which is equivalent to [constant Camera3D.KEEP_WIDTH]. If [code]false[/code], preserves the vertical aspect ratio which is equivalent to [constant Camera3D.KEEP_HEIGHT].
 			</description>
 		</method>
+		<method name="camera_set_xr_projections" experimental="">
+			<return type="void" />
+			<param index="0" name="camera" type="RID" />
+			<param index="1" name="projections" type="Projection[]" />
+			<param index="2" name="offsets" type="Transform3D[]" default="[]" />
+			<description>
+				Sets camera to use any set of [param projections]. You can specify one projection for each view set on the viewport. If the views are offset (e.g. ocular distance) and/or skewed, this data can be provided through [param offsets].
+			</description>
+		</method>
 		<method name="canvas_create">
 			<return type="RID" />
 			<description>
@@ -1829,7 +1838,7 @@
 			<return type="bool" />
 			<param index="0" name="feature" type="String" />
 			<description>
-				Returns [code]true[/code] if the OS supports a certain [param feature]. Features might be [code]s3tc[/code], [code]etc[/code], and [code]etc2[/code].
+				Returns [code]true[/code] if the OS supports a certain [param feature]. Features might be [code]s3tc[/code], [code]rgtc[/code], [code]bptc[/code], [code]etc[/code], [code]etc2[/code], [code]astc[/code], and [code]astc_hdr[/code].
 			</description>
 		</method>
 		<method name="instance_attach_object_instance_id">
@@ -2438,11 +2447,11 @@
 				[codeblock]
 				{
 					# Required:
-				    "primitive": RenderingServer.PrimitiveType,
-				    "format": RenderingServer.ArrayFormat,
-				    "vertex_data": PackedByteArray,
-				    "vertex_count": int,
-				    "aabb": AABB,
+					"primitive": RenderingServer.PrimitiveType,
+					"format": RenderingServer.ArrayFormat,
+					"vertex_data": PackedByteArray,
+					"vertex_count": int,
+					"aabb": AABB,
 
 					# Optional:
 					"attribute_data": PackedByteArray,

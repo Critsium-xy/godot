@@ -67,6 +67,7 @@
 #include "scene/resources/font.h"
 #include "scene/resources/mesh.h"
 #include "scene/resources/sky.h"
+#include "servers/audio/audio_server.h"
 #include "servers/display/display_server.h"
 
 #include "modules/modules_enabled.gen.h"
@@ -3171,7 +3172,6 @@ void EditorPropertyNodePath::_text_submitted(const String &p_text) {
 	_node_selected(np, false);
 	edit->hide();
 	assign->show();
-	menu->show();
 }
 
 const NodePath EditorPropertyNodePath::_get_node_path() const {
@@ -3964,7 +3964,7 @@ static EditorPropertyRangeHint _parse_range_hint(PropertyHint p_hint, const Stri
 	return hint;
 }
 
-static EditorProperty *get_input_action_editor(const String &p_hint_text, bool is_string_name) {
+static EditorProperty *_get_input_action_editor(const String &p_hint_text, bool is_string_name) {
 	// TODO: Should probably use a better editor GUI with a search bar.
 	// Said GUI could also handle showing builtin options, requiring 1 less hint.
 	EditorPropertyTextEnum *editor = memnew(EditorPropertyTextEnum);
@@ -3993,6 +3993,16 @@ static EditorProperty *get_input_action_editor(const String &p_hint_text, bool i
 	}
 	options.append_array(builtin_options);
 	editor->setup(options, Vector<String>(), is_string_name, hints.has("loose_mode"));
+	return editor;
+}
+
+static EditorProperty *_get_audio_bus_editor(bool is_string_name) {
+	EditorPropertyTextEnum *editor = memnew(EditorPropertyTextEnum);
+	Vector<String> options;
+	for (int i = 0; i < AudioServer::get_singleton()->get_bus_count(); i++) {
+		options.append(AudioServer::get_singleton()->get_bus_name(i));
+	}
+	editor->setup(options, Vector<String>(), is_string_name, false);
 	return editor;
 }
 
@@ -4114,7 +4124,9 @@ EditorProperty *EditorInspectorDefaultPlugin::get_editor_for_property(Object *p_
 				editor->setup(options, option_names, false, (p_hint == PROPERTY_HINT_ENUM_SUGGESTION));
 				return editor;
 			} else if (p_hint == PROPERTY_HINT_INPUT_NAME) {
-				return get_input_action_editor(p_hint_text, false);
+				return _get_input_action_editor(p_hint_text, false);
+			} else if (p_hint == PROPERTY_HINT_AUDIO_BUS) {
+				return _get_audio_bus_editor(false);
 			} else if (p_hint == PROPERTY_HINT_MULTILINE_TEXT) {
 				Vector<String> options = p_hint_text.split(",", false);
 				EditorPropertyMultilineText *editor = memnew(EditorPropertyMultilineText(false));
@@ -4278,7 +4290,9 @@ EditorProperty *EditorInspectorDefaultPlugin::get_editor_for_property(Object *p_
 				editor->setup(options, Vector<String>(), true, (p_hint == PROPERTY_HINT_ENUM_SUGGESTION));
 				return editor;
 			} else if (p_hint == PROPERTY_HINT_INPUT_NAME) {
-				return get_input_action_editor(p_hint_text, true);
+				return _get_input_action_editor(p_hint_text, true);
+			} else if (p_hint == PROPERTY_HINT_AUDIO_BUS) {
+				return _get_audio_bus_editor(true);
 			} else {
 				EditorPropertyText *editor = memnew(EditorPropertyText);
 				if (p_hint == PROPERTY_HINT_PLACEHOLDER_TEXT) {
