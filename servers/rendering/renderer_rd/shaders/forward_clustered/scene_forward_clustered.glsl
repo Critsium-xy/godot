@@ -2276,7 +2276,21 @@ void fragment_shader(in SceneData scene_data) {
 		}
 
 		//process ssr
-		if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_SSR)) {
+		bool apply_ssr = bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_SSR);
+#ifdef USE_TRANSPARENT_SSR
+		if (bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_USE_TRANSPARENT_SSR)) {
+			// Reflections were only traced for the nearest transparent surface on this pixel,
+			// the surfaces behind it keep using reflection probes and the sky.
+#ifdef USE_MULTIVIEW
+			float transparent_ssr_depth = texelFetch(sampler2DArray(transparent_ssr_depth_buffer, SAMPLER_NEAREST_CLAMP), ivec3(gl_FragCoord.xy, ViewIndex), 0).x;
+#else
+			float transparent_ssr_depth = texelFetch(sampler2D(transparent_ssr_depth_buffer, SAMPLER_NEAREST_CLAMP), ivec2(gl_FragCoord.xy), 0).x;
+#endif // USE_MULTIVIEW
+			// Both passes rasterize the same geometry, so only allow for precision differences between them.
+			apply_ssr = abs(gl_FragCoord.z - transparent_ssr_depth) <= max(gl_FragCoord.z, transparent_ssr_depth) * 1e-5 + 1e-7;
+		}
+#endif // USE_TRANSPARENT_SSR
+		if (apply_ssr) {
 			bool resolve_ssr = bool(implementation_data.ss_effects_flags & SCREEN_SPACE_EFFECTS_FLAGS_RESOLVE_SSR);
 
 			float ssr_mip_level = 0.0;

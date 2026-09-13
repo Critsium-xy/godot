@@ -314,11 +314,13 @@ SSEffects::SSEffects() {
 		{
 			Vector<String> ssr_modes;
 			ssr_modes.push_back("\n");
+			ssr_modes.push_back("\n#define MODE_TRANSPARENT\n");
 
 			ssr.ssr_shader.initialize(ssr_modes);
 			ssr.ssr_shader_version = ssr.ssr_shader.version_create();
 
 			ssr.ssr_pipeline.create_compute_pipeline(ssr.ssr_shader.version_get_shader(ssr.ssr_shader_version, 0));
+			ssr.ssr_transparent_pipeline.create_compute_pipeline(ssr.ssr_shader.version_get_shader(ssr.ssr_shader_version, 1));
 		}
 
 		{
@@ -456,6 +458,7 @@ SSEffects::~SSEffects() {
 			ssr.hiz_pipelines[i].free();
 		}
 		ssr.ssr_pipeline.free();
+		ssr.ssr_transparent_pipeline.free();
 		ssr.filter_pipeline.free();
 		ssr.resolve_pipeline.free();
 
@@ -1463,6 +1466,7 @@ void SSEffects::ssr_set_half_size(bool p_half_size) {
 void SSEffects::ssr_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, SSRRenderBuffers &p_ssr_buffers, const RD::DataFormat p_color_format) {
 	if (p_ssr_buffers.half_size != ssr_half_size) {
 		p_render_buffers->clear_context(RB_SCOPE_SSR);
+		p_render_buffers->clear_context(RB_SCOPE_SSR_TRANSPARENT);
 	}
 
 	Vector2i internal_size = p_render_buffers->get_internal_size();
@@ -1532,54 +1536,10 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 		RD::get_singleton()->buffer_update(ssr.ubo, 0, sizeof(ScreenSpaceReflectionSceneData), &scene_data);
 	}
 
-	RID linear_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 	RID nearest_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
 
 	if (ssr_half_size) {
-		RD::get_singleton()->draw_command_begin_label("SSR Downsample");
-
-		for (uint32_t v = 0; v < view_count; v++) {
-			ScreenSpaceReflectionDownsamplePushConstant push_constant;
-			push_constant.screen_size[0] = p_ssr_buffers.size.width;
-			push_constant.screen_size[1] = p_ssr_buffers.size.height;
-
-			RID source_depth_texture = p_render_buffers->get_depth_texture(v);
-			RID dest_depth_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_HIZ, v, 0);
-			RID dest_normal_roughness_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_NORMAL_ROUGHNESS, v, 0);
-
-			Size2i parent_size = RD::get_singleton()->texture_size(source_depth_texture);
-			bool is_width_odd = (parent_size.width % 2) != 0;
-			bool is_height_odd = (parent_size.height % 2) != 0;
-
-			int32_t downsample_mode;
-			if (is_width_odd && is_height_odd) {
-				downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_ODD_WIDTH_AND_HEIGHT;
-			} else if (is_width_odd) {
-				downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_ODD_WIDTH;
-			} else if (is_height_odd) {
-				downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_ODD_HEIGHT;
-			} else {
-				downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_DEFAULT;
-			}
-
-			RID downsample_shader = ssr.downsample_shader.version_get_shader(ssr.downsample_shader_version, downsample_mode);
-
-			RD::Uniform u_source_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>{ nearest_sampler, source_depth_texture });
-			RD::Uniform u_source_normal_roughness(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>{ nearest_sampler, p_normal_roughness_slices[v] });
-			RD::Uniform u_dest_depth(RD::UNIFORM_TYPE_IMAGE, 2, dest_depth_texture);
-			RD::Uniform u_dest_normal_roughness(RD::UNIFORM_TYPE_IMAGE, 3, dest_normal_roughness_texture);
-
-			RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
-
-			RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, ssr.downsample_pipelines[downsample_mode].get_rid());
-			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(downsample_shader, 0, u_source_depth, u_source_normal_roughness, u_dest_depth, u_dest_normal_roughness), 0);
-			RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(push_constant));
-			RD::get_singleton()->compute_list_dispatch_threads(compute_list, push_constant.screen_size[0], push_constant.screen_size[1], 1);
-
-			RD::get_singleton()->compute_list_end();
-		}
-
-		RD::get_singleton()->draw_command_end_label();
+		_screen_space_reflection_downsample(p_render_buffers, p_ssr_buffers, nullptr, p_normal_roughness_slices, RB_SCOPE_SSR, RB_HIZ);
 	} else {
 		RD::get_singleton()->draw_command_begin_label("SSR Copy Depth");
 
@@ -1643,14 +1603,116 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 
 	RD::get_singleton()->draw_command_end_label();
 
-	RD::get_singleton()->draw_command_begin_label("SSR Main");
+	_screen_space_reflection_trace(p_render_buffers, p_ssr_buffers, false, nullptr, p_normal_roughness_slices, p_normal_roughness_slices, p_max_steps, p_fade_in, p_fade_out, p_tolerance, p_projections);
+}
 
-	RID ssr_shader = ssr.ssr_shader.version_get_shader(ssr.ssr_shader_version, 0);
+void SSEffects::ssr_allocate_transparent_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, const RD::DataFormat p_color_format) {
+	uint32_t view_count = p_render_buffers->get_view_count();
+
+	if (p_ssr_buffers.half_size) {
+		p_render_buffers->create_texture(RB_SCOPE_SSR_TRANSPARENT, RB_ORIGIN_DEPTH, RD::DATA_FORMAT_R32_SFLOAT, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, p_ssr_buffers.size, view_count);
+		p_render_buffers->create_texture(RB_SCOPE_SSR_TRANSPARENT, RB_NORMAL_ROUGHNESS, RD::DATA_FORMAT_R8G8B8A8_UNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, p_ssr_buffers.size, view_count);
+	}
+
+	p_render_buffers->create_texture(RB_SCOPE_SSR_TRANSPARENT, RB_SSR, p_color_format, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, p_ssr_buffers.size, view_count, p_ssr_buffers.mipmaps);
+	p_render_buffers->create_texture(RB_SCOPE_SSR_TRANSPARENT, RB_MIP_LEVEL, RD::DATA_FORMAT_R8_UNORM, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, p_ssr_buffers.size, view_count);
+
+	if (p_ssr_buffers.half_size) {
+		p_render_buffers->create_texture(RB_SCOPE_SSR_TRANSPARENT, RB_FINAL, p_color_format, RD::TEXTURE_USAGE_SAMPLING_BIT | RD::TEXTURE_USAGE_STORAGE_BIT, RD::TEXTURE_SAMPLES_1, p_render_buffers->get_internal_size(), view_count);
+	}
+}
+
+void SSEffects::screen_space_reflection_transparent(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, const RID *p_depth_slices, const RID *p_normal_roughness_slices, const RID *p_opaque_normal_roughness_slices, int p_max_steps, float p_fade_in, float p_fade_out, float p_tolerance, const Projection *p_projections) {
+	if (p_ssr_buffers.half_size) {
+		_screen_space_reflection_downsample(p_render_buffers, p_ssr_buffers, p_depth_slices, p_normal_roughness_slices, RB_SCOPE_SSR_TRANSPARENT, RB_ORIGIN_DEPTH);
+	}
+
+	_screen_space_reflection_trace(p_render_buffers, p_ssr_buffers, true, p_depth_slices, p_normal_roughness_slices, p_opaque_normal_roughness_slices, p_max_steps, p_fade_in, p_fade_out, p_tolerance, p_projections);
+}
+
+// Downsamples depth and normal/roughness to the half size SSR resolution. A null p_depth_slices means the scene depth buffer.
+void SSEffects::_screen_space_reflection_downsample(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, const RID *p_depth_slices, const RID *p_normal_roughness_slices, const StringName &p_dest_scope, const StringName &p_dest_depth) {
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	RID nearest_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+
+	RD::get_singleton()->draw_command_begin_label("SSR Downsample");
+
+	for (uint32_t v = 0; v < p_render_buffers->get_view_count(); v++) {
+		ScreenSpaceReflectionDownsamplePushConstant push_constant;
+		push_constant.screen_size[0] = p_ssr_buffers.size.width;
+		push_constant.screen_size[1] = p_ssr_buffers.size.height;
+
+		RID source_depth_texture = p_depth_slices ? p_depth_slices[v] : p_render_buffers->get_depth_texture(v);
+		RID dest_depth_texture = p_render_buffers->get_texture_slice(p_dest_scope, p_dest_depth, v, 0);
+		RID dest_normal_roughness_texture = p_render_buffers->get_texture_slice(p_dest_scope, RB_NORMAL_ROUGHNESS, v, 0);
+
+		Size2i parent_size = RD::get_singleton()->texture_size(source_depth_texture);
+		bool is_width_odd = (parent_size.width % 2) != 0;
+		bool is_height_odd = (parent_size.height % 2) != 0;
+
+		int32_t downsample_mode;
+		if (is_width_odd && is_height_odd) {
+			downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_ODD_WIDTH_AND_HEIGHT;
+		} else if (is_width_odd) {
+			downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_ODD_WIDTH;
+		} else if (is_height_odd) {
+			downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_ODD_HEIGHT;
+		} else {
+			downsample_mode = SCREEN_SPACE_REFLECTION_DOWNSAMPLE_DEFAULT;
+		}
+
+		RID downsample_shader = ssr.downsample_shader.version_get_shader(ssr.downsample_shader_version, downsample_mode);
+
+		RD::Uniform u_source_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>{ nearest_sampler, source_depth_texture });
+		RD::Uniform u_source_normal_roughness(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>{ nearest_sampler, p_normal_roughness_slices[v] });
+		RD::Uniform u_dest_depth(RD::UNIFORM_TYPE_IMAGE, 2, dest_depth_texture);
+		RD::Uniform u_dest_normal_roughness(RD::UNIFORM_TYPE_IMAGE, 3, dest_normal_roughness_texture);
+
+		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
+
+		RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, ssr.downsample_pipelines[downsample_mode].get_rid());
+		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(downsample_shader, 0, u_source_depth, u_source_normal_roughness, u_dest_depth, u_dest_normal_roughness), 0);
+		RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(push_constant));
+		RD::get_singleton()->compute_list_dispatch_threads(compute_list, push_constant.screen_size[0], push_constant.screen_size[1], 1);
+
+		RD::get_singleton()->compute_list_end();
+	}
+
+	RD::get_singleton()->draw_command_end_label();
+}
+
+// Traces, roughness filters and (at half size) resolves reflections. Opaque and transparent reflections both march
+// through the Hi-Z of the opaque depth, but start from different surfaces and write to their own buffers.
+// A null p_depth_slices means the scene depth buffer.
+void SSEffects::_screen_space_reflection_trace(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, bool p_transparent, const RID *p_depth_slices, const RID *p_normal_roughness_slices, const RID *p_opaque_normal_roughness_slices, int p_max_steps, float p_fade_in, float p_fade_out, float p_tolerance, const Projection *p_projections) {
+	UniformSetCacheRD *uniform_set_cache = UniformSetCacheRD::get_singleton();
+	ERR_FAIL_NULL(uniform_set_cache);
+	MaterialStorage *material_storage = MaterialStorage::get_singleton();
+	ERR_FAIL_NULL(material_storage);
+
+	const StringName scope = p_transparent ? RB_SCOPE_SSR_TRANSPARENT : RB_SCOPE_SSR;
+	const bool half_size = p_ssr_buffers.half_size;
+	uint32_t view_count = p_render_buffers->get_view_count();
+
+	RID linear_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_LINEAR_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+	RID nearest_sampler = material_storage->sampler_rd_get_default(RSE::CANVAS_ITEM_TEXTURE_FILTER_NEAREST_WITH_MIPMAPS, RSE::CANVAS_ITEM_TEXTURE_REPEAT_DISABLED);
+
+	if (p_transparent) {
+		RD::get_singleton()->draw_command_begin_label("SSR Transparent Main");
+	} else {
+		RD::get_singleton()->draw_command_begin_label("SSR Main");
+	}
+
+	RID ssr_shader = ssr.ssr_shader.version_get_shader(ssr.ssr_shader_version, p_transparent ? 1 : 0);
 
 	for (uint32_t v = 0; v < view_count; v++) {
 		RD::ComputeListID compute_list = RD::get_singleton()->compute_list_begin();
 
-		RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, ssr.ssr_pipeline.get_rid());
+		RD::get_singleton()->compute_list_bind_compute_pipeline(compute_list, p_transparent ? ssr.ssr_transparent_pipeline.get_rid() : ssr.ssr_pipeline.get_rid());
 
 		ScreenSpaceReflectionPushConstant push_constant;
 		push_constant.screen_size[0] = p_ssr_buffers.size.width;
@@ -1664,15 +1726,16 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 		push_constant.view_index = v;
 
 		RID last_frame_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, 0);
-		if (ssr_half_size && RD::get_singleton()->texture_size(last_frame_texture) != p_ssr_buffers.size) {
+		if (half_size && RD::get_singleton()->texture_size(last_frame_texture) != p_ssr_buffers.size) {
 			// SSIL is likely also enabled. The texture we need is in the second mipmap in this case.
 			last_frame_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSLF, RB_LAST_FRAME, v, 1);
 		}
 
 		RID hiz_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_HIZ, v, 0, 1, p_ssr_buffers.mipmaps);
-		RID normal_roughness_texture = ssr_half_size ? p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_NORMAL_ROUGHNESS, v, 0) : p_normal_roughness_slices[v];
-		RID ssr_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_SSR, v, 0);
-		RID mip_level_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_MIP_LEVEL, v, 0);
+		// Hit validation reads the normal of the surface a ray lands on, which is always opaque.
+		RID normal_roughness_texture = half_size ? p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_NORMAL_ROUGHNESS, v, 0) : p_opaque_normal_roughness_slices[v];
+		RID ssr_texture = p_render_buffers->get_texture_slice(scope, RB_SSR, v, 0);
+		RID mip_level_texture = p_render_buffers->get_texture_slice(scope, RB_MIP_LEVEL, v, 0);
 
 		RD::Uniform u_last_frame(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>{ linear_sampler, last_frame_texture });
 		RD::Uniform u_hiz(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>{ nearest_sampler, hiz_texture });
@@ -1680,7 +1743,17 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 		RD::Uniform u_ssr(RD::UNIFORM_TYPE_IMAGE, 3, ssr_texture);
 		RD::Uniform u_mip_level(RD::UNIFORM_TYPE_IMAGE, 4, mip_level_texture);
 		RD::Uniform u_scene_data(RD::UNIFORM_TYPE_UNIFORM_BUFFER, 5, ssr.ubo);
-		RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(ssr_shader, 0, u_last_frame, u_hiz, u_normal_roughness, u_ssr, u_mip_level, u_scene_data), 0);
+
+		if (p_transparent) {
+			RID origin_depth_texture = half_size ? p_render_buffers->get_texture_slice(scope, RB_ORIGIN_DEPTH, v, 0) : p_depth_slices[v];
+			RID origin_normal_roughness_texture = half_size ? p_render_buffers->get_texture_slice(scope, RB_NORMAL_ROUGHNESS, v, 0) : p_normal_roughness_slices[v];
+
+			RD::Uniform u_origin_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 6, Vector<RID>{ nearest_sampler, origin_depth_texture });
+			RD::Uniform u_origin_normal_roughness(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 7, Vector<RID>{ nearest_sampler, origin_normal_roughness_texture });
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(ssr_shader, 0, u_last_frame, u_hiz, u_normal_roughness, u_ssr, u_mip_level, u_scene_data, u_origin_depth, u_origin_normal_roughness), 0);
+		} else {
+			RD::get_singleton()->compute_list_bind_uniform_set(compute_list, uniform_set_cache->get_cache(ssr_shader, 0, u_last_frame, u_hiz, u_normal_roughness, u_ssr, u_mip_level, u_scene_data), 0);
+		}
 
 		RD::get_singleton()->compute_list_set_push_constant(compute_list, &push_constant, sizeof(push_constant));
 		RD::get_singleton()->compute_list_dispatch_threads(compute_list, p_ssr_buffers.size.width, p_ssr_buffers.size.height, 1);
@@ -1701,8 +1774,8 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 			push_constant.screen_size[1] = MAX(1, p_ssr_buffers.size.height >> m);
 			push_constant.mip_level = m;
 
-			RID source = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_SSR, v, m - 1);
-			RID dest = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_SSR, v, m);
+			RID source = p_render_buffers->get_texture_slice(scope, RB_SSR, v, m - 1);
+			RID dest = p_render_buffers->get_texture_slice(scope, RB_SSR, v, m);
 
 			RD::Uniform u_source(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>{ linear_sampler, source });
 			RD::Uniform u_dest(RD::UNIFORM_TYPE_IMAGE, 1, dest);
@@ -1720,7 +1793,7 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 
 	RD::get_singleton()->draw_command_end_label();
 
-	if (ssr_half_size) {
+	if (half_size) {
 		RD::get_singleton()->draw_command_begin_label("SSR Resolve");
 
 		RID resolve_shader = ssr.resolve_shader.version_get_shader(ssr.resolve_shader_version, 0);
@@ -1736,12 +1809,13 @@ void SSEffects::screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffe
 			push_constant.screen_size[0] = internal_size.x;
 			push_constant.screen_size[1] = internal_size.y;
 
-			RID depth_texture = p_render_buffers->get_depth_texture(v);
-			RID depth_half_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_HIZ, v, 0);
-			RID normal_roughness_half_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_NORMAL_ROUGHNESS, v, 0);
-			RID ssr_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_SSR, v, 0, 1, p_ssr_buffers.mipmaps);
-			RID mip_level_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_MIP_LEVEL, v, 0);
-			RID output_texture = p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_FINAL, v, 0);
+			RID depth_texture = p_depth_slices ? p_depth_slices[v] : p_render_buffers->get_depth_texture(v);
+			// The opaque half size depth is the first level of the Hi-Z.
+			RID depth_half_texture = p_transparent ? p_render_buffers->get_texture_slice(scope, RB_ORIGIN_DEPTH, v, 0) : p_render_buffers->get_texture_slice(RB_SCOPE_SSR, RB_HIZ, v, 0);
+			RID normal_roughness_half_texture = p_render_buffers->get_texture_slice(scope, RB_NORMAL_ROUGHNESS, v, 0);
+			RID ssr_texture = p_render_buffers->get_texture_slice(scope, RB_SSR, v, 0, 1, p_ssr_buffers.mipmaps);
+			RID mip_level_texture = p_render_buffers->get_texture_slice(scope, RB_MIP_LEVEL, v, 0);
+			RID output_texture = p_render_buffers->get_texture_slice(scope, RB_FINAL, v, 0);
 
 			RD::Uniform u_depth(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 0, Vector<RID>{ nearest_sampler, depth_texture });
 			RD::Uniform u_normal_roughness(RD::UNIFORM_TYPE_SAMPLER_WITH_TEXTURE, 1, Vector<RID>{ nearest_sampler, p_normal_roughness_slices[v] });

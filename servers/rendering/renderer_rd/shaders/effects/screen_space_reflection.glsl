@@ -12,6 +12,17 @@ layout(set = 0, binding = 2) uniform sampler2D source_normal_roughness;
 layout(rgba16f, set = 0, binding = 3) uniform restrict writeonly image2D output_color;
 layout(r8, set = 0, binding = 4) uniform restrict writeonly image2D output_mip_level;
 
+#ifdef MODE_TRANSPARENT
+// Reflections are traced from the nearest transparent surface, but rays are still marched against the opaque Hi-Z.
+layout(set = 0, binding = 6) uniform sampler2D source_origin_depth;
+layout(set = 0, binding = 7) uniform sampler2D source_origin_normal_roughness;
+#define ORIGIN_DEPTH source_origin_depth
+#define ORIGIN_NORMAL_ROUGHNESS source_origin_normal_roughness
+#else
+#define ORIGIN_DEPTH source_hiz
+#define ORIGIN_NORMAL_ROUGHNESS source_normal_roughness
+#endif
+
 layout(set = 0, binding = 5, std140) uniform SceneData {
 	mat4 projection[2];
 	mat4 inv_projection[2];
@@ -66,16 +77,16 @@ vec3 compute_screen_pos(vec3 pos) {
 // https://habr.com/ru/articles/744336/
 vec3 compute_geometric_normal(ivec2 pixel_pos, float depth_c, vec3 view_c, float pixel_offset) {
 	vec4 H = vec4(
-			texelFetch(source_hiz, pixel_pos + ivec2(-1, 0), 0).x,
-			texelFetch(source_hiz, pixel_pos + ivec2(-2, 0), 0).x,
-			texelFetch(source_hiz, pixel_pos + ivec2(1, 0), 0).x,
-			texelFetch(source_hiz, pixel_pos + ivec2(2, 0), 0).x);
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(-1, 0), 0).x,
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(-2, 0), 0).x,
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(1, 0), 0).x,
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(2, 0), 0).x);
 
 	vec4 V = vec4(
-			texelFetch(source_hiz, pixel_pos + ivec2(0, -1), 0).x,
-			texelFetch(source_hiz, pixel_pos + ivec2(0, -2), 0).x,
-			texelFetch(source_hiz, pixel_pos + ivec2(0, 1), 0).x,
-			texelFetch(source_hiz, pixel_pos + ivec2(0, 2), 0).x);
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(0, -1), 0).x,
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(0, -2), 0).x,
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(0, 1), 0).x,
+			texelFetch(ORIGIN_DEPTH, pixel_pos + ivec2(0, 2), 0).x);
 
 	vec2 he = abs((2.0 * H.xz - H.yw) - depth_c);
 	vec2 ve = abs((2.0 * V.xz - V.yw) - depth_c);
@@ -106,13 +117,17 @@ void main() {
 
 	vec3 screen_pos;
 	screen_pos.xy = vec2(pixel_pos + 0.5) / params.screen_size;
-	screen_pos.z = texelFetch(source_hiz, pixel_pos, 0).x;
+	screen_pos.z = texelFetch(ORIGIN_DEPTH, pixel_pos, 0).x;
 
 	bool should_trace = screen_pos.z != 0.0;
+#ifdef MODE_TRANSPARENT
+	// When the nearest transparent surface is behind opaque geometry, every transparent surface on this pixel is hidden.
+	should_trace = should_trace && screen_pos.z >= texelFetch(source_hiz, pixel_pos, 0).x;
+#endif
 	if (should_trace) {
 		vec3 pos = compute_view_pos(screen_pos);
 
-		vec4 normal_roughness = texelFetch(source_normal_roughness, pixel_pos, 0);
+		vec4 normal_roughness = texelFetch(ORIGIN_NORMAL_ROUGHNESS, pixel_pos, 0);
 		vec3 normal = normalize(normal_roughness.xyz * 2.0 - 1.0);
 		float roughness = normal_roughness.w;
 		if (roughness > 0.5) {

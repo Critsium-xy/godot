@@ -441,6 +441,10 @@
 		<member name="transparency" type="int" setter="set_transparency" getter="get_transparency" enum="BaseMaterial3D.Transparency" default="0">
 			The material's transparency mode. Some transparency modes will disable shadow casting. Any transparency mode other than [constant TRANSPARENCY_DISABLED] has a greater performance impact compared to opaque rendering. See also [member blend_mode].
 		</member>
+		<member name="transparent_ssr" type="bool" setter="set_flag" getter="get_flag" default="false">
+			If [code]true[/code], screen-space reflections ([member Environment.ssr_enabled]) are also applied to this material while it is transparent. On each pixel, only the nearest transparent surface with this setting receives them; surfaces behind it keep using reflection probes and the sky. Has no effect unless the material is drawn in the transparent pass, or when [member depth_draw_mode] is [constant DEPTH_DRAW_DISABLED] or [member no_depth_test] is [code]true[/code].
+			[b]Note:[/b] Only supported in the Forward+ renderer. Each frame with such a material on screen costs an extra depth pre-pass for these materials and an extra reflection trace.
+		</member>
 		<member name="use_fov_override" type="bool" setter="set_flag" getter="get_flag" default="false">
 			If [code]true[/code] use [member fov_override] to override the [Camera3D]'s field of view angle.
 		</member>
@@ -785,7 +789,10 @@
 		<constant name="FLAG_USE_FOV_OVERRIDE" value="24" enum="Flags">
 			Enables using [member fov_override].
 		</constant>
-		<constant name="FLAG_MAX" value="25" enum="Flags">
+		<constant name="FLAG_TRANSPARENT_SSR" value="25" enum="Flags">
+			Enables screen-space reflections on this material while it is transparent. See [member transparent_ssr].
+		</constant>
+		<constant name="FLAG_MAX" value="26" enum="Flags">
 			Represents the size of the [enum Flags] enum.
 		</constant>
 		<constant name="DIFFUSE_BURLEY" value="0" enum="DiffuseMode">

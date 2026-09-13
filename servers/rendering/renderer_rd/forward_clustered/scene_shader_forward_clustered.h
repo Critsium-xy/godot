@@ -271,6 +271,7 @@ public:
 		bool uses_world_coordinates = false;
 		bool uses_screen_texture_mipmaps = false;
 		bool uses_z_clip_scale = false;
+		bool uses_transparent_ssr = false;
 		RSE::CullMode cull_mode = RSE::CULL_MODE_DISABLED;
 
 		bool stencil_enabled = false;
@@ -295,6 +296,12 @@ public:
 			bool no_depth_draw = depth_draw == DEPTH_DRAW_DISABLED;
 			bool no_depth_test = depth_test != DEPTH_TEST_ENABLED;
 			return (uses_depth_prepass_alpha || uses_alpha_antialiasing) && !(no_depth_draw || no_depth_test);
+		}
+
+		_FORCE_INLINE_ bool uses_transparent_ssr_pass() const {
+			// The transparent SSR pre-pass finds the nearest transparent surface with the depth test,
+			// so only surfaces that both write and test depth can take part in it.
+			return uses_transparent_ssr && uses_alpha_pass() && depth_draw != DEPTH_DRAW_DISABLED && depth_test == DEPTH_TEST_ENABLED;
 		}
 
 		_FORCE_INLINE_ bool uses_shared_shadow_material() const {

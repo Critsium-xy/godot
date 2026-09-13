@@ -90,6 +90,17 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_voxelgi() 
 	}
 }
 
+void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_transparent_ssr() {
+	ERR_FAIL_NULL(render_buffers);
+
+	if (!render_buffers->has_texture(RB_SCOPE_FORWARD_CLUSTERED, RB_TEX_TRANSPARENT_SSR_DEPTH)) {
+		// Only the pixel centers matter for tracing, so the transparent SSR pre-pass never uses MSAA.
+		bool can_be_storage = render_buffers->get_can_be_storage();
+		render_buffers->create_texture(RB_SCOPE_FORWARD_CLUSTERED, RB_TEX_TRANSPARENT_SSR_DEPTH, RenderSceneBuffersRD::get_depth_format(false, false, can_be_storage), RenderSceneBuffersRD::get_depth_usage_bits(false, false, can_be_storage));
+		render_buffers->create_texture(RB_SCOPE_FORWARD_CLUSTERED, RB_TEX_TRANSPARENT_SSR_NORMAL_ROUGHNESS, get_normal_roughness_format(), get_normal_roughness_usage_bits(false, false, can_be_storage));
+	}
+}
+
 void RenderForwardClustered::RenderBufferDataForwardClustered::ensure_fsr2(RendererRD::FSR2Effect *p_effect) {
 	if (fsr2_context == nullptr) {
 		fsr2_context = p_effect->create_context(render_buffers->get_internal_size(), render_buffers->get_target_size());
@@ -129,6 +140,7 @@ void RenderForwardClustered::RenderBufferDataForwardClustered::free_data() {
 		render_buffers->clear_context(RB_SCOPE_SSIL);
 		render_buffers->clear_context(RB_SCOPE_SSAO);
 		render_buffers->clear_context(RB_SCOPE_SSR);
+		render_buffers->clear_context(RB_SCOPE_SSR_TRANSPARENT);
 		render_buffers->clear_context(RB_SCOPE_SSCS);
 	}
 
@@ -261,6 +273,17 @@ RID RenderForwardClustered::RenderBufferDataForwardClustered::get_specular_only_
 	RID specular = render_buffers->get_texture(RB_SCOPE_FORWARD_CLUSTERED, use_msaa ? RB_TEX_SPECULAR_MSAA : RB_TEX_SPECULAR);
 
 	return FramebufferCacheRD::get_singleton()->get_cache_multiview(render_buffers->get_view_count(), specular);
+}
+
+RID RenderForwardClustered::RenderBufferDataForwardClustered::get_transparent_ssr_fb() {
+	ERR_FAIL_NULL_V(render_buffers, RID());
+
+	ensure_transparent_ssr();
+
+	RID depth = render_buffers->get_texture(RB_SCOPE_FORWARD_CLUSTERED, RB_TEX_TRANSPARENT_SSR_DEPTH);
+	RID normal_roughness = render_buffers->get_texture(RB_SCOPE_FORWARD_CLUSTERED, RB_TEX_TRANSPARENT_SSR_NORMAL_ROUGHNESS);
+
+	return FramebufferCacheRD::get_singleton()->get_cache_multiview(render_buffers->get_view_count(), depth, normal_roughness);
 }
 
 RID RenderForwardClustered::RenderBufferDataForwardClustered::get_velocity_only_fb() {
@@ -709,7 +732,7 @@ void RenderForwardClustered::_render_list_with_draw_list(RenderListParameters *p
 	RD::get_singleton()->draw_list_end();
 }
 
-uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render_data, bool p_no_fog, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier, bool p_pancake_shadows) {
+uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render_data, bool p_no_fog, const Size2i &p_screen_size, const Size2 &p_viewport_size, const Color &p_default_bg_color, bool p_opaque_render_buffers, bool p_apply_alpha_multiplier, bool p_pancake_shadows, bool p_transparent_ssr) {
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 
 	Ref<RenderSceneBuffersRD> rd = p_render_data->render_buffers;
@@ -789,6 +812,13 @@ uint32_t RenderForwardClustered::_setup_environment(const RenderDataRD *p_render
 					rb_data = rd->get_custom_data(RB_SCOPE_FORWARD_CLUSTERED);
 					ss_flags |= (rb_data.is_valid() && !rb_data->ss_effects_data.ssr.half_size) ? SCREEN_SPACE_EFFECTS_FLAGS_RESOLVE_SSR : 0;
 				}
+			}
+		} else if (p_transparent_ssr) {
+			// Only transparent materials that opted in read this, from the transparent SSR buffers.
+			ss_flags |= SCREEN_SPACE_EFFECTS_FLAGS_USE_TRANSPARENT_SSR;
+			if (rd.is_valid() && rd->has_custom_data(RB_SCOPE_FORWARD_CLUSTERED)) {
+				Ref<RenderBufferDataForwardClustered> rb_data = rd->get_custom_data(RB_SCOPE_FORWARD_CLUSTERED);
+				ss_flags |= (rb_data.is_valid() && !rb_data->ss_effects_data.ssr.half_size) ? SCREEN_SPACE_EFFECTS_FLAGS_RESOLVE_SSR : 0;
 			}
 		}
 		scene_state.ubo.ss_effects_flags = ss_flags;
@@ -976,6 +1006,7 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 			// Opaque fills motion and alpha lists.
 			render_list[RENDER_LIST_MOTION].clear();
 			render_list[RENDER_LIST_ALPHA].clear();
+			render_list[RENDER_LIST_TRANSPARENT_SSR].clear();
 		}
 	}
 
@@ -1182,6 +1213,9 @@ void RenderForwardClustered::_fill_render_list(RenderListType p_render_list, con
 				if (force_alpha || (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_PASS_ALPHA)) {
 					surf->color_pass_inclusion_mask = COLOR_PASS_FLAG_TRANSPARENT;
 					render_list[RENDER_LIST_ALPHA].add_element(surf);
+					if (surf->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_TRANSPARENT_SSR) {
+						render_list[RENDER_LIST_TRANSPARENT_SSR].add_element(surf);
+					}
 					if (uses_gi) {
 						surf->sort.uses_forward_gi = 1;
 					}
@@ -1519,7 +1553,7 @@ void RenderForwardClustered::_process_ssil(Ref<RenderSceneBuffersRD> p_render_bu
 	rb_data->ss_effects_data.ssil_last_frame_transform = transform;
 }
 
-void RenderForwardClustered::_process_ssr(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_slices, const Projection *p_projections, const Vector3 *p_eye_offsets, const Transform3D &p_transform) {
+void RenderForwardClustered::_process_ssr(Ref<RenderSceneBuffersRD> p_render_buffers, RID p_environment, const RID *p_normal_slices, bool p_use_transparent_ssr, const Projection *p_projections, const Vector3 *p_eye_offsets, const Transform3D &p_transform) {
 	ERR_FAIL_NULL(ss_effects);
 	ERR_FAIL_COND(p_render_buffers.is_null());
 
@@ -1545,6 +1579,21 @@ void RenderForwardClustered::_process_ssr(Ref<RenderSceneBuffersRD> p_render_buf
 	rb_data->ss_effects_data.ssr_last_frame_transform = p_transform;
 
 	ss_effects->screen_space_reflection(p_render_buffers, rb_data->ss_effects_data.ssr, p_normal_slices, environment_get_ssr_max_steps(p_environment), environment_get_ssr_fade_in(p_environment), environment_get_ssr_fade_out(p_environment), environment_get_ssr_depth_tolerance(p_environment), p_projections, reprojections, p_eye_offsets, *copy_effects);
+
+	if (p_use_transparent_ssr) {
+		RENDER_TIMESTAMP("Process Transparent SSR");
+
+		ss_effects->ssr_allocate_transparent_buffers(p_render_buffers, rb_data->ss_effects_data.ssr, p_render_buffers->get_base_data_format());
+
+		RID depth_slices[RendererSceneRender::MAX_RENDER_VIEWS];
+		RID normal_roughness_slices[RendererSceneRender::MAX_RENDER_VIEWS];
+		for (uint32_t v = 0; v < p_render_buffers->get_view_count(); v++) {
+			depth_slices[v] = rb_data->get_transparent_ssr_depth(v);
+			normal_roughness_slices[v] = rb_data->get_transparent_ssr_normal_roughness(v);
+		}
+
+		ss_effects->screen_space_reflection_transparent(p_render_buffers, rb_data->ss_effects_data.ssr, depth_slices, normal_roughness_slices, p_normal_slices, environment_get_ssr_max_steps(p_environment), environment_get_ssr_fade_in(p_environment), environment_get_ssr_fade_out(p_environment), environment_get_ssr_depth_tolerance(p_environment), p_projections);
+	}
 }
 
 void RenderForwardClustered::_process_sscs(Ref<RenderSceneBuffersRD> p_render_buffers, const Projection *p_projections, const Transform3D &p_transform, const LocalVector<int> &p_contact_shadows, const RenderShadowData *p_render_shadows, const float p_taa_frame_count) {
@@ -1590,7 +1639,7 @@ void RenderForwardClustered::_copy_framebuffer_to_ss_effects(Ref<RenderSceneBuff
 	ss_effects->copy_internal_texture_to_last_frame(p_render_buffers, *copy_effects);
 }
 
-void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, bool p_use_ssao, bool p_use_ssil, bool p_use_ssr, bool p_use_sscs, bool p_use_gi, const RID *p_normal_roughness_slices, RID p_voxel_gi_buffer) {
+void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, bool p_use_ssao, bool p_use_ssil, bool p_use_ssr, bool p_use_transparent_ssr, bool p_use_sscs, bool p_use_gi, const RID *p_normal_roughness_slices, RID p_voxel_gi_buffer) {
 	// Render shadows while GI is rendering, due to how barriers are handled, this should happen at the same time
 	RendererRD::LightStorage *light_storage = RendererRD::LightStorage::get_singleton();
 	RendererRD::TextureStorage *texture_storage = RendererRD::TextureStorage::get_singleton();
@@ -1727,7 +1776,7 @@ void RenderForwardClustered::_pre_opaque_render(RenderDataRD *p_render_data, boo
 		}
 
 		if (p_use_ssr) {
-			_process_ssr(rb, p_render_data->environment, p_normal_roughness_slices, p_render_data->scene_data->view_projection, p_render_data->scene_data->view_eye_offset, p_render_data->scene_data->cam_transform);
+			_process_ssr(rb, p_render_data->environment, p_normal_roughness_slices, p_use_transparent_ssr, p_render_data->scene_data->view_projection, p_render_data->scene_data->view_eye_offset, p_render_data->scene_data->cam_transform);
 		}
 	}
 
@@ -2014,11 +2063,16 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	render_list[RENDER_LIST_OPAQUE].sort_by_key();
 	render_list[RENDER_LIST_MOTION].sort_by_key();
 	render_list[RENDER_LIST_ALPHA].sort_by_reverse_depth_and_priority();
+	render_list[RENDER_LIST_TRANSPARENT_SSR].sort_by_key();
 
 	int *render_info = p_render_data->render_info ? p_render_data->render_info->info[RSE::VIEWPORT_RENDER_INFO_TYPE_VISIBLE] : (int *)nullptr;
 	_fill_instance_data(RENDER_LIST_OPAQUE, render_info);
 	_fill_instance_data(RENDER_LIST_MOTION, render_info);
 	_fill_instance_data(RENDER_LIST_ALPHA, render_info);
+	_fill_instance_data(RENDER_LIST_TRANSPARENT_SSR);
+
+	// Transparent surfaces that opted in get reflections of their own, traced from a dedicated pre-pass.
+	bool using_transparent_ssr = using_ssr && rb_data.is_valid() && render_list[RENDER_LIST_TRANSPARENT_SSR].elements.size() > 0;
 
 	RD::get_singleton()->draw_command_end_label();
 
@@ -2213,6 +2267,9 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 	bool force_depth_pre_pass = scene_state.used_opaque_stencil;
 	bool depth_pre_pass = (force_depth_pre_pass || scene_shader.depth_prepass_enabled) && depth_framebuffer.is_valid();
 
+	// The transparent SSR pre-pass and its shading read the opaque depth and normal/roughness from the depth pre-pass.
+	using_transparent_ssr = using_transparent_ssr && depth_pre_pass;
+
 	SceneShaderForwardClustered::ShaderSpecialization base_specialization = scene_shader.default_specialization;
 	base_specialization.use_depth_fog = p_render_data->environment.is_valid() && environment_get_fog_mode(p_render_data->environment) == RSE::EnvironmentFogMode::ENV_FOG_MODE_DEPTH;
 
@@ -2259,6 +2316,22 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 		}
 	}
 
+	if (using_transparent_ssr) {
+		RENDER_TIMESTAMP("Render Transparent SSR Pre-Pass");
+		RD::get_singleton()->draw_command_begin_label("Render Transparent SSR Pre-Pass");
+
+		// Keeps the depth, normal and roughness of the nearest transparent surface receiving SSR on each pixel.
+		// It is not tested against the opaque depth: when the nearest transparent surface is hidden, so is every
+		// other one on that pixel, and the trace skips those pixels instead.
+		RID rp_uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_TRANSPARENT_SSR, p_render_data, is_multiview, RID(), samplers, depth_prepass_uniform_buffer_index);
+
+		Vector<Color> transparent_ssr_clear = { Color(0, 0, 0, 0) };
+		RenderListParameters render_list_params(render_list[RENDER_LIST_TRANSPARENT_SSR].elements.ptr(), render_list[RENDER_LIST_TRANSPARENT_SSR].element_info.ptr(), render_list[RENDER_LIST_TRANSPARENT_SSR].elements.size(), reverse_cull, PASS_MODE_DEPTH_NORMAL_ROUGHNESS, 0, rb_data.is_null(), p_render_data->directional_light_soft_shadows, rp_uniform_set, false, Vector2(), p_render_data->scene_data->lod_distance_multiplier, p_render_data->scene_data->screen_mesh_lod_threshold, p_render_data->scene_data->view_count, 0, base_specialization, !is_reflection_probe);
+		_render_list_with_draw_list(&render_list_params, rb_data->get_transparent_ssr_fb(), RD::DRAW_CLEAR_ALL, transparent_ssr_clear, 0.0f, 0u, p_render_data->render_region);
+
+		RD::get_singleton()->draw_command_end_label();
+	}
+
 	{
 		if (ce_pre_opaque_resolved_color) {
 			// We haven't rendered color data yet so...
@@ -2280,7 +2353,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 			normal_roughness_views[v] = rb_data->get_normal_roughness(v);
 		}
 	}
-	_pre_opaque_render(p_render_data, using_ssao, using_ssil, using_ssr, using_sscs, using_sdfgi || using_voxelgi, normal_roughness_views, rb_data.is_valid() && rb_data->has_voxelgi() ? rb_data->get_voxelgi() : RID());
+	_pre_opaque_render(p_render_data, using_ssao, using_ssil, using_ssr, using_transparent_ssr, using_sscs, using_sdfgi || using_voxelgi, normal_roughness_views, rb_data.is_valid() && rb_data->has_voxelgi() ? rb_data->get_voxelgi() : RID());
 
 	if (current_cluster_builder) {
 		base_specialization.cluster_has_area_light = current_cluster_builder->get_cluster_count_by_type(ClusterBuilderRD::ELEMENT_TYPE_AREA_LIGHT) != 0;
@@ -2512,7 +2585,7 @@ void RenderForwardClustered::_render_scene(RenderDataRD *p_render_data, const Co
 
 	RD::get_singleton()->draw_command_begin_label("Render 3D Transparent Pass");
 
-	uint32_t transparent_pass_uniform_buffer_index = _setup_environment(p_render_data, is_reflection_probe, screen_size, screen_size, p_default_bg_color, false);
+	uint32_t transparent_pass_uniform_buffer_index = _setup_environment(p_render_data, is_reflection_probe, screen_size, screen_size, p_default_bg_color, false, false, false, using_transparent_ssr);
 
 	rp_uniform_set = _setup_render_pass_uniform_set(RENDER_LIST_ALPHA, p_render_data, is_multiview, radiance_texture, samplers, transparent_pass_uniform_buffer_index, true);
 
@@ -3570,6 +3643,19 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		}
 	}
 
+	// Like the depth pre-pass, the transparent SSR pre-pass runs before this frame's shadows, GI and screen-space
+	// effects exist, and binding them would only make the passes producing them wait on it. It does read the opaque
+	// depth and normal/roughness, which are complete by then and match what the transparent pass reads.
+	Ref<RenderSceneBuffersRD> opaque_prepass_rb;
+	Ref<RenderBufferDataForwardClustered> opaque_prepass_rb_data;
+	if (p_render_list == RENDER_LIST_TRANSPARENT_SSR) {
+		opaque_prepass_rb = rb;
+		opaque_prepass_rb_data = rb_data;
+		rb.unref();
+		rb_data.unref();
+		p_render_data = nullptr;
+	}
+
 	//default render buffer and scene state uniform set
 
 	thread_local LocalVector<RD::Uniform> uniforms;
@@ -3781,7 +3867,10 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		u.binding = 24;
 		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 		RID texture;
-		if (rb.is_valid() && rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH)) {
+		if (opaque_prepass_rb.is_valid()) {
+			// The back depth copy is only made before the transparent pass, read the resolved depth directly.
+			texture = opaque_prepass_rb->get_depth_texture();
+		} else if (rb.is_valid() && rb->has_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH)) {
 			texture = rb->get_texture(RB_SCOPE_BUFFERS, RB_TEX_BACK_DEPTH);
 		} else {
 			texture = texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_DEPTH : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_DEPTH);
@@ -3803,7 +3892,8 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		RD::Uniform u;
 		u.binding = 26;
 		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
-		RID texture = rb_data.is_valid() && rb_data->has_normal_roughness() ? rb_data->get_normal_roughness() : texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_NORMAL : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_NORMAL);
+		Ref<RenderBufferDataForwardClustered> normal_roughness_rb_data = opaque_prepass_rb_data.is_valid() ? opaque_prepass_rb_data : rb_data;
+		RID texture = normal_roughness_rb_data.is_valid() && normal_roughness_rb_data->has_normal_roughness() ? normal_roughness_rb_data->get_normal_roughness() : texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_NORMAL : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_NORMAL);
 		u.append_id(texture);
 		uniforms.push_back(u);
 	}
@@ -3903,6 +3993,8 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		u.append_id(texture);
 		uniforms.push_back(u);
 	}
+	// The transparent pass reads the reflections traced for the nearest transparent surface.
+	const StringName ssr_scope = p_render_list == RENDER_LIST_ALPHA ? RB_SCOPE_SSR_TRANSPARENT : RB_SCOPE_SSR;
 	{
 		RD::Uniform u;
 		u.binding = 35;
@@ -3911,12 +4003,12 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		RID ssr;
 		if (rb_data.is_valid()) {
 			if (rb_data->ss_effects_data.ssr.half_size) {
-				if (rb->has_texture(RB_SCOPE_SSR, RB_FINAL)) {
-					ssr = rb->get_texture(RB_SCOPE_SSR, RB_FINAL);
+				if (rb->has_texture(ssr_scope, RB_FINAL)) {
+					ssr = rb->get_texture(ssr_scope, RB_FINAL);
 				}
 			} else {
-				if (rb->has_texture(RB_SCOPE_SSR, RB_SSR)) {
-					ssr = rb->get_texture(RB_SCOPE_SSR, RB_SSR);
+				if (rb->has_texture(ssr_scope, RB_SSR)) {
+					ssr = rb->get_texture(ssr_scope, RB_SSR);
 				}
 			}
 		}
@@ -3930,7 +4022,7 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		u.binding = 36;
 		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
 
-		RID ssr_mip_level = (rb_data.is_valid() && !rb_data->ss_effects_data.ssr.half_size && rb->has_texture(RB_SCOPE_SSR, RB_MIP_LEVEL)) ? rb->get_texture(RB_SCOPE_SSR, RB_MIP_LEVEL) : RID();
+		RID ssr_mip_level = (rb_data.is_valid() && !rb_data->ss_effects_data.ssr.half_size && rb->has_texture(ssr_scope, RB_MIP_LEVEL)) ? rb->get_texture(ssr_scope, RB_MIP_LEVEL) : RID();
 		RID texture = ssr_mip_level.is_valid() ? ssr_mip_level : texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK);
 		u.append_id(texture);
 		uniforms.push_back(u);
@@ -3948,6 +4040,16 @@ RID RenderForwardClustered::_setup_render_pass_uniform_set(RenderListType p_rend
 		}
 
 		RID texture = sscs.is_valid() ? sscs : texture_storage->texture_rd_get_default(RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK);
+		u.append_id(texture);
+		uniforms.push_back(u);
+	}
+	{
+		RD::Uniform u;
+		u.binding = 39;
+		u.uniform_type = RD::UNIFORM_TYPE_TEXTURE;
+
+		RID depth = (p_render_list == RENDER_LIST_ALPHA && rb_data.is_valid() && rb_data->has_transparent_ssr()) ? rb_data->get_transparent_ssr_depth() : RID();
+		RID texture = depth.is_valid() ? depth : texture_storage->texture_rd_get_default(is_multiview ? RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_2D_ARRAY_BLACK : RendererRD::TextureStorage::DEFAULT_RD_TEXTURE_BLACK);
 		u.append_id(texture);
 		uniforms.push_back(u);
 	}
@@ -4397,6 +4499,10 @@ void RenderForwardClustered::_geometry_instance_add_surface_with_material(Geomet
 
 	if (p_material->shader_data->stencil_enabled) {
 		flags |= GeometryInstanceSurfaceDataCache::FLAG_USES_STENCIL;
+	}
+
+	if (p_material->shader_data->uses_transparent_ssr_pass()) {
+		flags |= GeometryInstanceSurfaceDataCache::FLAG_USES_TRANSPARENT_SSR;
 	}
 
 	if (p_material->shader_data->uses_alpha_pass()) {
@@ -4956,6 +5062,14 @@ void RenderForwardClustered::_mesh_compile_pipelines_for_surface(const SurfacePi
 		}
 	}
 
+	if (p_surface.uses_transparent_ssr) {
+		// Transparent surfaces receiving SSR are also drawn in the single sampled transparent SSR pre-pass.
+		pipeline_key.color_pass_flags = 0;
+		pipeline_key.version = SceneShaderForwardClustered::PIPELINE_VERSION_DEPTH_PASS_WITH_NORMAL_AND_ROUGHNESS;
+		pipeline_key.framebuffer_format_id = _get_depth_framebuffer_format_for_pipeline(buffers_can_be_storage, RD::TEXTURE_SAMPLES_1, true, false);
+		_mesh_compile_pipeline_for_surface(p_surface.shader, p_surface.mesh_surface, true, p_surface.instanced, p_source, pipeline_key, r_pipeline_pairs);
+	}
+
 	if (!p_surface.uses_depth) {
 		return;
 	}
@@ -5040,6 +5154,7 @@ void RenderForwardClustered::_mesh_generate_all_pipelines_for_surface_cache(Geom
 	surface.uses_opaque = !uses_alpha_pass;
 	surface.uses_transparent = uses_alpha_pass || uses_fade;
 	surface.uses_depth = (p_surface_cache->flags & (GeometryInstanceSurfaceDataCache::FLAG_PASS_DEPTH | GeometryInstanceSurfaceDataCache::FLAG_PASS_OPAQUE | GeometryInstanceSurfaceDataCache::FLAG_PASS_SHADOW)) != 0;
+	surface.uses_transparent_ssr = (p_surface_cache->flags & GeometryInstanceSurfaceDataCache::FLAG_USES_TRANSPARENT_SSR) != 0;
 	surface.can_use_lightmap = p_surface_cache->owner->lightmap_instance.is_valid() || p_surface_cache->owner->lightmap_sh;
 	_mesh_compile_pipelines_for_surface(surface, p_global, RSE::PIPELINE_SOURCE_SURFACE);
 }
@@ -5234,6 +5349,7 @@ void RenderForwardClustered::mesh_generate_pipelines(RID p_mesh, bool p_backgrou
 		surface.uses_opaque = !material->shader_data->uses_alpha_pass();
 		surface.uses_transparent = material->shader_data->uses_alpha_pass();
 		surface.uses_depth = surface.uses_opaque || (surface.uses_transparent && material->shader_data->uses_depth_in_alpha_pass());
+		surface.uses_transparent_ssr = material->shader_data->uses_transparent_ssr_pass();
 		surface.can_use_lightmap = mesh_storage->mesh_surface_get_format(mesh_surface) & RSE::ARRAY_FORMAT_TEX_UV2;
 		_mesh_compile_pipelines_for_surface(surface, global_pipeline_data_required, RSE::PIPELINE_SOURCE_MESH, &pipeline_pairs);
 	}

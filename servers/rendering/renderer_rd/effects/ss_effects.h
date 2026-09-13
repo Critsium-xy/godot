@@ -53,6 +53,7 @@
 #define RB_SCOPE_SSIL SNAME("rb_ssil")
 #define RB_SCOPE_SSAO SNAME("rb_ssao")
 #define RB_SCOPE_SSR SNAME("rb_ssr")
+#define RB_SCOPE_SSR_TRANSPARENT SNAME("rb_ssr_transparent")
 #define RB_SCOPE_SSCS SNAME("rb_sscs")
 
 #define RB_LINEAR_DEPTH SNAME("linear_depth")
@@ -68,6 +69,7 @@
 #define RB_HIZ SNAME("hiz")
 #define RB_SSR SNAME("ssr")
 #define RB_MIP_LEVEL SNAME("mip_level")
+#define RB_ORIGIN_DEPTH SNAME("origin_depth")
 
 #define RB_SSCS SNAME("sscs")
 
@@ -155,6 +157,11 @@ public:
 
 	void ssr_allocate_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, SSRRenderBuffers &p_ssr_buffers, const RD::DataFormat p_color_format);
 	void screen_space_reflection(Ref<RenderSceneBuffersRD> p_render_buffers, SSRRenderBuffers &p_ssr_buffers, const RID *p_normal_roughness_slices, int p_max_steps, float p_fade_in, float p_fade_out, float p_tolerance, const Projection *p_projections, const Projection *p_reprojections, const Vector3 *p_eye_offsets, RendererRD::CopyEffects &p_copy_effects);
+
+	// Reflections for the nearest transparent surface, traced from the depth and normal/roughness of a transparent pre-pass.
+	// Must follow screen_space_reflection() in the same frame, as it reuses its Hi-Z and scene data.
+	void ssr_allocate_transparent_buffers(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, const RD::DataFormat p_color_format);
+	void screen_space_reflection_transparent(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, const RID *p_depth_slices, const RID *p_normal_roughness_slices, const RID *p_opaque_normal_roughness_slices, int p_max_steps, float p_fade_in, float p_fade_out, float p_tolerance, const Projection *p_projections);
 
 	/* subsurface scattering */
 	void sss_set_quality(RSE::SubSurfaceScatteringQuality p_quality);
@@ -504,6 +511,7 @@ private:
 		ScreenSpaceReflectionShaderRD ssr_shader;
 		RID ssr_shader_version;
 		PipelineDeferredRD ssr_pipeline;
+		PipelineDeferredRD ssr_transparent_pipeline;
 		RID ubo;
 
 		ScreenSpaceReflectionFilterShaderRD filter_shader;
@@ -514,6 +522,9 @@ private:
 		RID resolve_shader_version;
 		PipelineDeferredRD resolve_pipeline;
 	} ssr;
+
+	void _screen_space_reflection_downsample(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, const RID *p_depth_slices, const RID *p_normal_roughness_slices, const StringName &p_dest_scope, const StringName &p_dest_depth);
+	void _screen_space_reflection_trace(Ref<RenderSceneBuffersRD> p_render_buffers, const SSRRenderBuffers &p_ssr_buffers, bool p_transparent, const RID *p_depth_slices, const RID *p_normal_roughness_slices, const RID *p_opaque_normal_roughness_slices, int p_max_steps, float p_fade_in, float p_fade_out, float p_tolerance, const Projection *p_projections);
 
 	/* Screen Space Shadows */
 
